@@ -1,6 +1,8 @@
 # Deploys the site to GitHub Pages and writes config.js from repository variables.
 # Settings → Pages → Source: "GitHub Actions".
-# Settings → Secrets and variables → Actions → Variables: GOOGLE_CLIENT_ID, AI_ENDPOINT (both public values, both optional).
+# Settings → Secrets and variables → Actions → Secrets: GOOGLE_CLIENT_ID, AI_ENDPOINT (both optional).
+# Stored as secrets so they stay out of the repo and are masked in the (public) Actions logs.
+# They still end up in the deployed config.js, because the browser needs them.
 name: Deploy
 
 on:
@@ -27,13 +29,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build site
         env:
-          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
-          AI_ENDPOINT: ${{ vars.AI_ENDPOINT }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          AI_ENDPOINT: ${{ secrets.AI_ENDPOINT }}
         run: |
           mkdir _site
           cp index.html manifest.json sw.js icon.svg icon-192.png icon-512.png apple-touch-icon.png _site/
           node -e 'const e=process.env; require("fs").writeFileSync("_site/config.js", "window.LIVED_CONFIG = " + JSON.stringify({GOOGLE_CLIENT_ID: e.GOOGLE_CLIENT_ID || "", AI_ENDPOINT: e.AI_ENDPOINT || ""}) + ";\n")'
-          cat _site/config.js
+          echo "config.js written"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -10,7 +10,7 @@
 | --- | --- |
 | `index.html` | כל האפליקציה: ציר הזמן, הכנסת אירוע, מנתח טקסט מובנה, Google Calendar |
 | `config.example.js` | תבנית להגדרות הציבוריות (`config.js` לא נשמר ב-Git) |
-| `.github/workflows/deploy.yml` | פרסום ל-GitHub Pages ויצירת `config.js` מ-repository variables |
+| `.github/workflows/deploy.yml` | פרסום ל-GitHub Pages ויצירת `config.js` מ-GitHub secrets |
 | `ai/worker.js`, `ai/wrangler.toml` | (אופציונלי) שרת שמנתח את הטקסט עם Claude דרך Anthropic API |
 | `sw.js`, `manifest.json`, `icon.svg` | התקנה כאפליקציה ועבודה אופליין |
 
@@ -30,14 +30,14 @@
 
 ## הגדרות לפני פרסום
 
-### ערכים ציבוריים: GitHub → Settings → Secrets and variables → Actions → **Variables**
+### GitHub → Settings → Secrets and variables → Actions → **Secrets**
 
-| משתנה | חובה? | מה זה |
+| שם | חובה? | מה זה |
 | --- | --- | --- |
-| `GOOGLE_CLIENT_ID` | לא | OAuth Client ID מסוג *Web application*. בלעדיו האפליקציה עובדת במצב "פתיחת Google Calendar ממולא". |
+| `GOOGLE_CLIENT_ID` | לא | OAuth Client ID מסוג *Web application*. בלעדיו האפליקציה פותחת את Google Calendar עם האירוע ממולא. |
 | `AI_ENDPOINT` | לא | כתובת ה-Worker, למשל `https://lived-ai.<account>.workers.dev`. בלעדיו פועל המנתח המובנה. |
 
-אלה repository **variables** ולא secrets, כי הם מגיעים לדפדפן בכל מקרה. אסור לשים כאן ערך סודי.
+הם נשמרים כ-secrets כדי שלא יופיעו ב-repo, ו-GitHub מסתיר אותם בלוגים של Actions (שהם ציבוריים ב-repo ציבורי). חשוב לדעת: שני הערכים עדיין מגיעים לדפדפן דרך `config.js` באתר החי, כי Google Sign-In צריך את ה-Client ID בצד הלקוח. ההגנה על ה-Client ID היא רשימת ה-Authorized JavaScript origins ב-Google Cloud, לא הסתרה.
 
 בנוסף: Settings → Pages → Source: **GitHub Actions**.
 
