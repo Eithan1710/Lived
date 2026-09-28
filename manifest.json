@@ -1,7 +1,7 @@
 {
-  "name": "Event Planner",
-  "short_name": "Event Planner",
-  "description": "יומן אישי מהיר עם חיבור ל-Google Calendar",
+  "name": "EventAi",
+  "short_name": "EventAi",
+  "description": "כותבים אירוע, ה-AI מבין אותו, והוא נכנס ל-Google Calendar.",
   "lang": "he",
   "dir": "rtl",
   "start_url": "./index.html",
@@ -9,7 +9,7 @@
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#FFFFFF",
-  "orientation": "any",
+  "orientation": "portrait",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

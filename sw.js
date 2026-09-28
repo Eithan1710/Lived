@@ -1,9 +1,8 @@
-/* Event Planner service worker
+/* EventAi service worker
    - The page itself: network first (you always get the latest version), cached copy when offline.
    - Icons / manifest: cache first.
-   - Only this site's own files. Google APIs, sign-in and fonts are never intercepted,
-     so calendar data is always fresh. */
-const CACHE = 'event-planner-v2';
+   - Only this site's own files. Google APIs, sign-in and fonts are never intercepted. */
+const CACHE = 'eventai-v3';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', (e)=>{
