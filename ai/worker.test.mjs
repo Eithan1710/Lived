@@ -97,6 +97,16 @@ assert.equal(bodies[1].generationConfig.thinkingConfig, undefined);
   await new Promise(r => setTimeout(r, 2700));
   assert.equal(seen.length, 1);
 }
+// main model overloaded twice-in-a-row pattern: 503 → fallback also 503 → main again → ok
+{
+  const seen = [];
+  let n = 0;
+  const bursty = async (u, o) => { const m = u.match(/models\/([^:]+)/)[1]; seen.push(m); n++;
+    if(n < 3) return new Response('{}', {status:503});
+    return gemini({title:'third', date:'2026-10-01', time:'', category:'food'})(u, o); };
+  assert.equal((await extract('x', ctx, env, bursty)).title, 'third');
+  assert.deepEqual(seen, ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']);
+}
 console.log('worker tests passed');
 
 // /health: reports setup without revealing the key

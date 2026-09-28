@@ -98,13 +98,16 @@ export function clean(j){
 }
 
 // Hedged request: ask the main model; if it hasn't answered after HEDGE_MS (or fails sooner), ask the
-// fallback model too, and take whichever valid answer comes first. `trace` collects what each try did.
+// fallback model too, then the main model once more (its 503 "overloaded" errors are momentary), and take
+// whichever valid answer comes first. A model that answered 429 (no quota) or 404 isn't asked again.
+// `trace` collects what each try did.
 const HEDGE_MS = 2500;
 export function extract(text, ctx, env, fetchImpl = fetch, trace = []){
   const primary = env.GEMINI_MODEL || DEFAULT_MODEL;
   const fallback = env.GEMINI_FALLBACK_MODEL === undefined ? DEFAULT_FALLBACK_MODEL : env.GEMINI_FALLBACK_MODEL;
-  const models = [primary, fallback].filter((m, i, a) => m && a.indexOf(m) === i);
+  const models = fallback && fallback !== primary ? [primary, fallback, primary] : [primary, primary];
   const started = Date.now();
+  const dead = new Set();   // models that said 429 / 404
   return new Promise((resolve, reject) => {
     let running = 0, next = 0, settled = false, lastErr = null, timer = null;
     const finish = (fn, v) => { if(settled) return; settled = true; clearTimeout(timer); fn(v); };
@@ -115,7 +118,8 @@ export function extract(text, ctx, env, fetchImpl = fetch, trace = []){
       else if(!running) finish(reject, lastErr);
     };
     const launch = () => {
-      if(settled || next >= models.length) return;
+      while(next < models.length && dead.has(models[next])) next++;
+      if(settled || next >= models.length){ if(!settled && !running) finish(reject, lastErr); return; }
       const model = models[next++], left = BUDGET_MS - (Date.now() - started);
       if(left < 1000){ if(!running) finish(reject, lastErr || new Error('no time left')); return; }
       running++;
@@ -130,6 +134,7 @@ export function extract(text, ctx, env, fetchImpl = fetch, trace = []){
         lastErr = e;
         // a bad key or request won't get better with another model
         if(e.status && e.status < 500 && e.status !== 429 && e.status !== 404) return finish(reject, e);
+        if(e.status === 429 || e.status === 404) dead.add(model);
         failed();
       });
       if(next < models.length){ clearTimeout(timer); timer = setTimeout(launch, HEDGE_MS); }
