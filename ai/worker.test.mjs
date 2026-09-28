@@ -35,7 +35,7 @@ assert.equal(clean({title:'x', date:'tomorrow', time:'', category:'food'}), null
 assert.equal(clean({title:'x', date:'2026-10-20', time:'25:00', category:'nope'}).time, '');   // bad time → all-day
 assert.equal(clean({title:'x', date:'2026-10-20', time:'', category:'nope'}).category, 'other');
 assert.equal(clean({title:'x', date:'2026-10-20', time:'', endTime:'10:00', category:'food'}).endTime, ''); // no end without start
-assert.equal(await extract('x', ctx, env, gemini('not json')), null);
+await assert.rejects(extract('x', ctx, env, gemini('not json')));   // invalid answers from both models → error
 
 // HTTP handler
 const call = (origin, body, method = 'POST') => worker.fetch(new Request('https://w.test/', {method, headers:{'Origin':origin, 'Content-Type':'application/json'}, body: method==='POST' ? JSON.stringify(body) : undefined}), env);
@@ -52,7 +52,9 @@ assert.equal(r.headers.get('Access-Control-Allow-Origin'), 'https://site.test');
 globalThis.fetch = gemini({title:'Gym', date:'2026-09-28', time:'18:00', endTime:'', location:'', notes:'', category:'fitness'});
 r = await call('https://site.test', {text:'Gym today at 6', today:'2026-09-28', weekday:1});
 assert.equal(r.status, 200);
-assert.deepEqual(await r.json(), {title:'Gym', date:'2026-09-28', time:'18:00', endDate:'', endTime:'', location:'', notes:'', category:'fitness'});
+const gymBody = await r.json();
+assert.equal(gymBody.meta.trace[0].result, 'ok'); delete gymBody.meta;
+assert.deepEqual(gymBody, {title:'Gym', date:'2026-09-28', time:'18:00', endDate:'', endTime:'', location:'', notes:'', category:'fitness'});
 globalThis.fetch = realFetch;
 // retry: a 503 then a good answer → success; 429 → no retry
 let calls = 0;
@@ -75,6 +77,26 @@ const noThink = async (u, o) => { const b = JSON.parse(o.body); bodies.push(b);
 assert.equal((await extract('x', ctx, env, noThink)).title, 'T');
 assert.equal(bodies[0].generationConfig.thinkingConfig.thinkingLevel, 'minimal');
 assert.equal(bodies[1].generationConfig.thinkingConfig, undefined);
+// hedging: main model slow → fallback asked after 2.5 s, its answer wins; trace records both
+{
+  const seen = [], trace = [];
+  const slowMain = async (u, o) => { const m = u.match(/models\/([^:]+)/)[1]; seen.push(m);
+    if(m === 'gemini-3.1-flash-lite') await new Promise(r => setTimeout(r, 4000));
+    return gemini({title: m, date:'2026-10-01', time:'', category:'food'})(u, o); };
+  const t0 = Date.now();
+  const ev = await extract('x', ctx, env, slowMain, trace);
+  assert.equal(ev.title, 'gemini-3.5-flash-lite');
+  assert.ok(Date.now() - t0 < 3500, 'fallback answer should arrive after ~2.5 s');
+  assert.deepEqual(seen, ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']);
+  assert.equal(trace[0].model, 'gemini-3.5-flash-lite');
+}
+// fast main model → fallback never asked
+{
+  const seen = [];
+  await extract('x', ctx, env, async (u, o) => { seen.push(u); return gemini({title:'A', date:'2026-10-01', time:'', category:'food'})(u, o); });
+  await new Promise(r => setTimeout(r, 2700));
+  assert.equal(seen.length, 1);
+}
 console.log('worker tests passed');
 
 // /health: reports setup without revealing the key

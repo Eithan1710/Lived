@@ -97,25 +97,45 @@ export function clean(j){
   };
 }
 
-export async function extract(text, ctx, env, fetchImpl = fetch){
+// Hedged request: ask the main model; if it hasn't answered after HEDGE_MS (or fails sooner), ask the
+// fallback model too, and take whichever valid answer comes first. `trace` collects what each try did.
+const HEDGE_MS = 2500;
+export function extract(text, ctx, env, fetchImpl = fetch, trace = []){
   const primary = env.GEMINI_MODEL || DEFAULT_MODEL;
   const fallback = env.GEMINI_FALLBACK_MODEL === undefined ? DEFAULT_FALLBACK_MODEL : env.GEMINI_FALLBACK_MODEL;
   const models = [primary, fallback].filter((m, i, a) => m && a.indexOf(m) === i);
   const started = Date.now();
-  let lastErr;
-  for(let i = 0; i < models.length; i++){
-    const left = BUDGET_MS - (Date.now() - started);
-    if(left < 1500) break;
-    // the main model gets up to 5.5 s, so a fallback still has time
-    const timeout = i === 0 && models.length > 1 ? Math.min(5500, left) : left;
-    try{ return await extractOnce(text, ctx, env, fetchImpl, models[i], timeout); }
-    catch(e){
-      lastErr = e;
-      // a bad key or request won't get better with another model
-      if(e.status && e.status < 500 && e.status !== 429 && e.status !== 404) throw e;
-    }
-  }
-  throw lastErr || new Error('no time left');
+  return new Promise((resolve, reject) => {
+    let running = 0, next = 0, settled = false, lastErr = null, timer = null;
+    const finish = (fn, v) => { if(settled) return; settled = true; clearTimeout(timer); fn(v); };
+    const failed = () => {
+      running--;
+      if(settled) return;
+      if(next < models.length){ clearTimeout(timer); launch(); }
+      else if(!running) finish(reject, lastErr);
+    };
+    const launch = () => {
+      if(settled || next >= models.length) return;
+      const model = models[next++], left = BUDGET_MS - (Date.now() - started);
+      if(left < 1000){ if(!running) finish(reject, lastErr || new Error('no time left')); return; }
+      running++;
+      const t0 = Date.now();
+      extractOnce(text, ctx, env, fetchImpl, model, left).then(ev => {
+        trace.push({model, ms: Date.now() - t0, result: ev ? 'ok' : 'invalid answer'});
+        if(ev) return finish(resolve, ev);
+        lastErr = new Error(`${model}: invalid answer`);
+        failed();
+      }, e => {
+        trace.push({model, ms: Date.now() - t0, result: e.status || String(e.message).slice(0, 60)});
+        lastErr = e;
+        // a bad key or request won't get better with another model
+        if(e.status && e.status < 500 && e.status !== 429 && e.status !== 404) return finish(reject, e);
+        failed();
+      });
+      if(next < models.length){ clearTimeout(timer); timer = setTimeout(launch, HEDGE_MS); }
+    };
+    launch();
+  });
 }
 
 async function extractOnce(text, ctx, env, fetchImpl, model, timeoutMs){
@@ -199,13 +219,15 @@ export default {
     };
 
     try{
-      const event = await extract(text, ctx, env);
-      if(!event) return reply({error:'model returned an invalid event'}, 502, h);
-      return reply(event, 200, h);
+      const trace = [];
+      try{
+        const event = await extract(text, ctx, env, fetch, trace);
+        return reply({...event, meta:{trace}}, 200, h);
+      }catch(e){ e.trace = trace; throw e; }
     }catch(e){
       // 429 = free-tier quota used up; the app falls back to its built-in parser
       console.log('gemini error', e.status, e.detail || e.message);
-      return reply({error: e.status === 429 ? 'rate limited' : 'ai unavailable', upstream: e.status || String(e.message).slice(0, 80)}, e.status === 429 ? 429 : 502, h);
+      return reply({error: e.status === 429 ? 'rate limited' : 'ai unavailable', upstream: e.status || String(e.message).slice(0, 80), meta:{trace: e.trace || []}}, e.status === 429 ? 429 : 502, h);
     }
   }
 };
