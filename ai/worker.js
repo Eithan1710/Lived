@@ -94,20 +94,23 @@ export function clean(j){
 }
 
 export async function extract(text, ctx, env, fetchImpl = fetch){
-  // one retry for temporary errors (overloaded / 5xx); not for 429 (quota) or 4xx
+  // Everything must finish well within the site's 9 s wait: 4 s per try, one retry for temporary
+  // errors (overloaded / 5xx / timeout); never for 429 (quota) or other 4xx.
+  const started = Date.now();
   for(let attempt = 0; ; attempt++){
-    try{ return await extractOnce(text, ctx, env, fetchImpl); }
+    try{ return await extractOnce(text, ctx, env, fetchImpl, 4000); }
     catch(e){
-      if(attempt >= 1 || !(e.status >= 500 || e.status === undefined)) throw e;
-      await new Promise(r => setTimeout(r, 700));
+      if(attempt >= 1 || !(e.status >= 500 || e.status === undefined) || Date.now() - started > 4500) throw e;
+      await new Promise(r => setTimeout(r, 300));
     }
   }
 }
 
-async function extractOnce(text, ctx, env, fetchImpl){
+async function extractOnce(text, ctx, env, fetchImpl, timeoutMs){
   const model = env.GEMINI_MODEL || DEFAULT_MODEL;
   const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {'x-goog-api-key': apiKey(env), 'Content-Type': 'application/json'},
     body: JSON.stringify({
       systemInstruction: {parts: [{text: SYSTEM}]},
