@@ -2,7 +2,7 @@
    Turns "Dinner with Sarah tomorrow at 8pm in Tel Aviv" into a fixed JSON shape, using the
    Google Gemini API (free tier) with a JSON schema, so the model can only answer in that shape.
 
-   Environment (set in Cloudflare, never in the repo — see ai/.env.example):
+   Environment (set in Cloudflare, never in the repo — see .env.example):
    - GEMINI_API_KEY   secret   API key from Google AI Studio (a project WITHOUT billing = free tier only).
    - ALLOWED_ORIGINS  var      comma-separated site origins allowed to call this worker.
    - GEMINI_MODEL     var      optional, default below.
