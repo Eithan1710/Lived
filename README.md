@@ -1,38 +1,71 @@
-# EventAi
+# Lived
 
-כותבים אירוע ← ה-AI מבין אותו ← הוא נכנס ל-Google Calendar.
+ההיסטוריה האישית שלך, בציר זמן אחד.
 
-> "פגישה עם יוסי מחר ב-14:00 בתל אביב"
-
-האפליקציה מזהה לבד את שם האירוע, התאריך, השעה, המיקום והקטגוריה, מציגה כרטיס קצר לאישור, ובלחיצה אחת מוסיפה אותו ליומן.
+כותבים מה קרה, למשל "אתמול ארוחת ערב עם שרה ב-20:00", או מה מתוכנן, למשל "מחר פגישה עם יוסי ב-10". האפליקציה מבינה לבד את השם, התאריך, השעה, המיקום והקטגוריה. האירוע נשמר בציר הזמן (מה שקרה בחלק "מה היה", ומה שמתוכנן בחלק "בקרוב") ומתווסף ל-Google Calendar.
 
 ## קבצים
 
-| קובץ | מה יש בו |
+| קובץ | תפקיד |
 | --- | --- |
-| `index.html` | כל האפליקציה: מסך אחד, מנתח טקסט מובנה, חיבור ל-Google Calendar |
-| `ai/worker.js` | (אופציונלי) שרת קטן שמנתח את הטקסט עם Claude |
-| `sw.js`, `manifest.json` | התקנה כאפליקציה בטלפון ועבודה אופליין |
+| `index.html` | כל האפליקציה: ציר הזמן, הכנסת אירוע, מנתח טקסט מובנה, Google Calendar |
+| `config.example.js` | תבנית להגדרות הציבוריות (`config.js` לא נשמר ב-Git) |
+| `.github/workflows/deploy.yml` | פרסום ל-GitHub Pages ויצירת `config.js` מ-repository variables |
+| `ai/worker.js`, `ai/wrangler.toml` | (אופציונלי) שרת שמנתח את הטקסט עם Claude דרך Anthropic API |
+| `sw.js`, `manifest.json`, `icon.svg` | התקנה כאפליקציה ועבודה אופליין |
 
-## הגדרות (בראש הסקריפט ב-`index.html`)
+## איך זה עובד
 
-```js
-const CONFIG = {
-  GOOGLE_CLIENT_ID: '',   // אופציונלי
-  AI_ENDPOINT: ''         // אופציונלי
-};
-```
+**איפה נשמר ציר הזמן:** ב-`localStorage` של הדפדפן, במכשיר עצמו. אין שרת ואין מסד נתונים. בנוסף, כל אירוע נשלח גם ל-Google Calendar.
 
-**בלי שום הגדרה** הכל עובד: הניתוח רץ בדפדפן, ו"הוסף ליומן" פותח את Google Calendar עם האירוע כבר ממולא (לוחצים "שמירה").
+**הבנת הטקסט:**
+- ברירת המחדל היא מנתח מובנה שרץ בדפדפן, בלי שום API, מפתח או חשבון חיצוני.
+- אם מוגדר `AI_ENDPOINT`, הטקסט נשלח ל-Worker שקורא ל-Anthropic API (מודל `claude-haiku-4-5-20251001`) עם **המפתח שלך**, שנשמר כ-secret ב-Cloudflare.
+- אם ה-Worker לא זמין, האפליקציה חוזרת אוטומטית למנתח המובנה.
 
-**`GOOGLE_CLIENT_ID`** — הוספה ישירה ליומן בלחיצה אחת, בלי לעבור ל-Google Calendar:
-1. ב-[Google Cloud Console](https://console.cloud.google.com/apis/credentials) יוצרים OAuth Client ID מסוג *Web application*.
-2. מוסיפים את כתובת האתר כ-Authorized JavaScript origin.
-3. מפעילים את Google Calendar API ומדביקים את ה-Client ID ב-`CONFIG`.
+**Google Calendar:** OAuth 2.0 בדפדפן דרך Google Identity Services, בהרשאה `calendar.events` בלבד.
+- ה-Client ID הוא ערך ציבורי מעצם הגדרתו, ובאפליקציית דפדפן אין Client Secret בכלל.
+- ההגנה על ה-Client ID היא רשימת ה-Authorized JavaScript origins שמוגדרת ב-Google Cloud, לא הסתרה.
+- בלי Client ID, "שמירה" פותחת את Google Calendar עם האירוע ממולא, והמשתמש לוחץ שם "שמירה".
 
-**`AI_ENDPOINT`** — ניתוח עם מודל שפה (Claude) במקום המנתח המובנה:
+## הגדרות לפני פרסום
+
+### ערכים ציבוריים: GitHub → Settings → Secrets and variables → Actions → **Variables**
+
+| משתנה | חובה? | מה זה |
+| --- | --- | --- |
+| `GOOGLE_CLIENT_ID` | לא | OAuth Client ID מסוג *Web application*. בלעדיו האפליקציה עובדת במצב "פתיחת Google Calendar ממולא". |
+| `AI_ENDPOINT` | לא | כתובת ה-Worker, למשל `https://lived-ai.<account>.workers.dev`. בלעדיו פועל המנתח המובנה. |
+
+אלה repository **variables** ולא secrets, כי הם מגיעים לדפדפן בכל מקרה. אסור לשים כאן ערך סודי.
+
+בנוסף: Settings → Pages → Source: **GitHub Actions**.
+
+### Google Cloud Console
+1. APIs & Services → מפעילים את **Google Calendar API**.
+2. OAuth consent screen: מגדירים את האפליקציה ומוסיפים את ה-scope `.../auth/calendar.events`.
+3. Credentials → Create OAuth client ID → *Web application*.
+4. ב-**Authorized JavaScript origins** מוסיפים רק את כתובת האתר, למשל `https://eithan1710.github.io`, ו-`http://localhost:8000` לפיתוח.
+5. לא צריך Client Secret ולא redirect URI, כי זרם ה-token של GIS לא משתמש בהם.
+
+### סוד אמיתי: Cloudflare, רק אם משתמשים ב-AI
+
+| משתנה | סוג | איפה |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | **secret** | `cd ai && npx wrangler secret put ANTHROPIC_API_KEY` |
+| `ALLOWED_ORIGINS` | var | `ai/wrangler.toml`: כתובות האתר שמורשות לקרוא ל-Worker |
+
 ```sh
-wrangler deploy ai/worker.js --name eventai-ai
-wrangler secret put ANTHROPIC_API_KEY
+cd ai
+npx wrangler deploy
+npx wrangler secret put ANTHROPIC_API_KEY
 ```
-ומדביקים את כתובת ה-Worker ב-`CONFIG`. אם השרת לא זמין, האפליקציה חוזרת אוטומטית למנתח המובנה.
+
+המפתח לא נמצא בקוד, לא ב-Git ולא בדפדפן. ה-Worker מסרב לבקשות ממקורות שלא ברשימה. מומלץ להגדיר גם תקרת הוצאה בחשבון Anthropic.
+
+## פיתוח מקומי
+
+```sh
+cp config.example.js config.js   # ממלאים ערכים אם רוצים
+python3 -m http.server 8000
+```

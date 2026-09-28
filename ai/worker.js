@@ -1,48 +1,66 @@
-/* EventAi — optional AI parser (Cloudflare Worker).
-   Turns "פגישה עם יוסי מחר ב-14:00 בתל אביב" into structured event JSON using Claude.
-   Deploy: `wrangler deploy ai/worker.js --name eventai-ai`, then `wrangler secret put ANTHROPIC_API_KEY`,
-   and put the worker URL in CONFIG.AI_ENDPOINT in index.html.
-   The API key stays on the server; the app falls back to its built-in parser if this is down. */
+/* Lived — AI parser (Cloudflare Worker). Optional; the site works without it.
+   Turns "Yesterday I had dinner with Sarah at 8pm" into structured event JSON using the Anthropic API (Claude).
+
+   Configuration (Cloudflare, never in the repo):
+   - ANTHROPIC_API_KEY  (secret)  `wrangler secret put ANTHROPIC_API_KEY` — your own Anthropic account key.
+   - ALLOWED_ORIGINS    (var)     comma-separated site origins allowed to call this worker,
+                                  e.g. "https://eithan1710.github.io". Requests from other origins are refused. */
+const MODEL = 'claude-haiku-4-5-20251001';
 const CATEGORIES = ['birthday','health','date','sport','gym','trip','show','study','work','food','family','friends','other'];
 
-const SYSTEM = `You extract a single calendar event from a short user message (usually Hebrew, sometimes English).
-Reply with JSON only, no prose:
+const SYSTEM = `You extract one calendar event from a short personal note (usually Hebrew, sometimes English).
+The note may describe something that already happened ("אתמול…", "Yesterday I had…", "last Friday") or something planned ("מחר…", "next week").
+Reply with JSON only:
 {"title": string, "date": "YYYY-MM-DD", "time": "HH:MM" | null, "endTime": "HH:MM" | null,
  "location": string, "notes": string, "category": one of ${JSON.stringify(CATEGORIES)}}
 Rules:
-- title: short and natural, in the user's language, without the date/time/location words.
-- Resolve relative dates ("מחר", "ביום ראשון", "next Friday") against the current date given to you. A date with no year that already passed this year means next year.
-- time: 24h. null when no time is mentioned (an all-day event). "8 בערב" = 20:00.
-- endTime only if the user said when it ends.
+- title: short noun phrase in the note's language, without date/time/location words or "I had"/"הייתי" ("Dinner with Sarah", "ארוחת ערב עם שרה").
+- date: resolve relative dates against the given today/weekday. Past-tense notes point to the past, future-tense to the future.
+  A date without a year: the closest matching date in the direction the note implies.
+- time: 24h, null if no time is mentioned. "8 בערב" / "8pm" = 20:00.
+- endTime only if an end is stated.
 - location: only if a place is mentioned, else "".
-- notes: other useful details the user wrote (people to bring, what to prepare), else "".`;
+- notes: other useful details from the note, else "".`;
 
-const CORS = {'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Methods':'POST, OPTIONS', 'Access-Control-Allow-Headers':'Content-Type'};
+function cors(origin){
+  return {'Access-Control-Allow-Origin':origin, 'Access-Control-Allow-Methods':'POST, OPTIONS', 'Access-Control-Allow-Headers':'Content-Type', 'Vary':'Origin'};
+}
+const reply = (body, status, headers) => new Response(typeof body==='string' ? body : JSON.stringify(body), {status, headers:{...headers, 'Content-Type':'application/json'}});
 
 export default {
   async fetch(req, env){
-    if(req.method === 'OPTIONS') return new Response(null, {headers:CORS});
-    if(req.method !== 'POST') return new Response('POST only', {status:405, headers:CORS});
+    const allowed = String(env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
+    const origin = req.headers.get('Origin') || '';
+    if(!allowed.includes(origin)) return reply({error:'origin not allowed'}, 403, {});
+    const h = cors(origin);
+    if(req.method === 'OPTIONS') return new Response(null, {headers:h});
+    if(req.method !== 'POST') return reply({error:'POST only'}, 405, h);
+    if(!env.ANTHROPIC_API_KEY) return reply({error:'not configured'}, 500, h);
+
     let body;
-    try{ body = await req.json(); }catch(e){ return new Response('bad json', {status:400, headers:CORS}); }
-    const text = String(body.text || '').slice(0, 500);
-    if(!text.trim()) return new Response('empty', {status:400, headers:CORS});
+    try{ body = await req.json(); }catch(e){ return reply({error:'bad json'}, 400, h); }
+    const text = String(body.text || '').trim().slice(0, 300);
+    if(!text) return reply({error:'empty'}, 400, h);
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(body.today) ? body.today : new Date().toISOString().slice(0,10);
+    const weekday = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][Number(body.weekday)] || '';
+    const now = /^\d{2}:\d{2}$/.test(body.now) ? body.now : '';
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
       headers:{'x-api-key':env.ANTHROPIC_API_KEY, 'anthropic-version':'2023-06-01', 'content-type':'application/json'},
       body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 400,
+        model: MODEL,
+        max_tokens: 300,
         system: SYSTEM,
-        messages: [{role:'user', content:`Now: ${body.now || new Date().toISOString()} (time zone ${body.tz || 'UTC'})\nMessage: ${text}`}]
+        messages: [{role:'user', content:`Today: ${today} (${weekday}), time now ${now}.\nNote: ${text}`}]
       })
     });
-    if(!res.ok) return new Response('ai error', {status:502, headers:CORS});
+    if(!res.ok) return reply({error:'ai error'}, 502, h);
     const data = await res.json();
     const out = (data.content || []).map(c=>c.text || '').join('');
-    const json = out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1);
-    try{ JSON.parse(json); }catch(e){ return new Response('ai returned no json', {status:502, headers:CORS}); }
-    return new Response(json, {headers:{...CORS, 'Content-Type':'application/json'}});
+    try{
+      const j = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+      return reply({title:j.title, date:j.date, time:j.time, endTime:j.endTime, location:j.location, notes:j.notes, category:j.category}, 200, h);
+    }catch(e){ return reply({error:'ai returned no json'}, 502, h); }
   }
 };

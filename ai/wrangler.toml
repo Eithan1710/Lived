@@ -1,0 +1,9 @@
+# Cloudflare Worker for Lived's AI parser. Deploy from this folder: `npx wrangler deploy`
+# Secret (never commit it): `npx wrangler secret put ANTHROPIC_API_KEY`
+name = "lived-ai"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+# Origins allowed to call the worker (your site). Comma-separated.
+ALLOWED_ORIGINS = "https://eithan1710.github.io"
