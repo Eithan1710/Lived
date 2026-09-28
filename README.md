@@ -11,8 +11,8 @@
 | `index.html` | כל האפליקציה: ציר הזמן, הכנסת אירוע, מנתח טקסט מובנה, Google Calendar |
 | `config.example.js` | תבנית להגדרות הציבוריות (`config.js` לא נשמר ב-Git) |
 | `.github/workflows/deploy.yml` | פרסום ל-GitHub Pages ויצירת `config.js` מ-GitHub secrets |
-| `ai/worker.js`, `ai/wrangler.toml` | שרת AI קטן (Cloudflare Worker) שמנתח את הטקסט עם Google Gemini API |
-| `ai/.env.example` | משתני הסביבה של שרת ה-AI |
+| `ai/worker.js`, `wrangler.toml` | שרת AI קטן (Cloudflare Worker) שמנתח את הטקסט עם Google Gemini API |
+| `.env.example` | משתני הסביבה של שרת ה-AI |
 | `ai/worker.test.mjs`, `ai/test-live.mjs` | בדיקות: בלי מפתח / מול Gemini האמיתי |
 | `sw.js`, `manifest.json`, `icon.svg` | התקנה כאפליקציה ועבודה אופליין |
 
@@ -76,20 +76,16 @@
 
 | משתנה | סוג | איפה |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | **secret** | `cd ai && npx wrangler secret put GEMINI_API_KEY` |
-| `ALLOWED_ORIGINS` | var | `ai/wrangler.toml`: כתובות האתר שמורשות לקרוא ל-Worker |
-| `GEMINI_MODEL` | var | `ai/wrangler.toml` (ברירת מחדל `gemini-3.1-flash-lite`) |
+| `GEMINI_API_KEY` | **secret** | Cloudflare → lived-ai → Settings → Variables and Secrets (או `npx wrangler secret put GEMINI_API_KEY`) |
+| `ALLOWED_ORIGINS` | var | `wrangler.toml`: כתובות האתר שמורשות לקרוא ל-Worker |
+| `GEMINI_MODEL` | var | `wrangler.toml` (ברירת מחדל `gemini-3.1-flash-lite`) |
 
 1. ב-[Google AI Studio](https://aistudio.google.com/apikey) יוצרים API key **בפרויקט שאין בו billing**. כך הוא מוגבל ל-Free Tier: כשהמכסה נגמרת מקבלים שגיאה 429, לא חיוב.
-2. מפרסמים:
-   ```sh
-   cd ai
-   npx wrangler deploy
-   npx wrangler secret put GEMINI_API_KEY
-   ```
+2. מפרסמים: ב-Cloudflare → Workers & Pages → Create → **Import a repository** → בוחרים את ה-repo. ה-Root directory נשאר ריק (`/`), וה-Deploy command הוא `npx wrangler deploy`. הקובץ `wrangler.toml` מפרסם רק את `ai/worker.js`, ואף קובץ של האתר לא עולה. אחר כך מוסיפים את הסוד `GEMINI_API_KEY` ב-Settings → Variables and Secrets.
+   אפשר גם מהטרמינל: `npx wrangler deploy` ואז `npx wrangler secret put GEMINI_API_KEY`.
 3. את הכתובת שמתקבלת (`https://lived-ai.<account>.workers.dev`) שמים ב-GitHub secret `AI_ENDPOINT`, ומריצים שוב את ה-Deploy.
 
-בדיקה מול Gemini האמיתי: `cp ai/.env.example ai/.env`, ממלאים את המפתח, ומריצים `node ai/test-live.mjs`.
+בדיקה מול Gemini האמיתי: `cp .env.example .env`, ממלאים את המפתח, ומריצים `node ai/test-live.mjs`.
 
 **חשוב על ה-Free Tier של Gemini:**
 - חינמי כל עוד לא מפעילים billing בפרויקט.

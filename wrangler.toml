@@ -1,0 +1,17 @@
+# Cloudflare Worker for Lived's AI parser. ONLY ai/worker.js is deployed:
+# there is no [assets] section, so none of the site's files are uploaded.
+# (The site itself is hosted on GitHub Pages.)
+#
+# Cloudflare "Connect to Git" build settings: root directory = / (default), deploy command = npx wrangler deploy
+# Secret (set in Cloudflare, never in the repo): GEMINI_API_KEY
+# Local dev: copy .env.example to .env (git-ignored), then `npx wrangler dev`.
+name = "lived-ai"
+main = "ai/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+# Origins allowed to call the worker (your site). Comma-separated.
+ALLOWED_ORIGINS = "https://eithan1710.github.io"
+# Gemini model with a free tier. Change here if Google retires it.
+GEMINI_MODEL = "gemini-3.1-flash-lite"

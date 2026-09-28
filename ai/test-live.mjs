@@ -1,15 +1,15 @@
-// Live test against the real Gemini API. Needs GEMINI_API_KEY (env var or ai/.env). Free tier: ~10 requests.
+// Live test against the real Gemini API. Needs GEMINI_API_KEY (env var or .env in the repo root). Free tier: ~10 requests.
 // Run: node ai/test-live.mjs
 import {readFileSync} from 'node:fs';
 import {extract} from './worker.js';
 
 const env = {...process.env};
 try{
-  for(const line of readFileSync(new URL('./.env', import.meta.url), 'utf8').split('\n')){
+  for(const line of readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')){
     const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.*)\s*$/); if(m && !env[m[1]]) env[m[1]] = m[2];
   }
 }catch(e){}
-if(!env.GEMINI_API_KEY){ console.error('Set GEMINI_API_KEY (or put it in ai/.env)'); process.exit(1); }
+if(!env.GEMINI_API_KEY){ console.error('Set GEMINI_API_KEY (or put it in .env)'); process.exit(1); }
 
 const pad = n => String(n).padStart(2,'0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
