@@ -261,7 +261,7 @@ function fullDate(d){
    In Google Calendar a category becomes:
      colorId       — the event color (Google has 11 event colors; each category gets its own),
      extendedProperties.private.category — the machine-readable key,
-     a "קטגוריה:" line in the description.
+     a line in the description with its emoji and name ("✈️ טיולים").
    The keys match the enum in ai/worker.js.
    ===================================================================== */
 const CATS = [
@@ -269,7 +269,7 @@ const CATS = [
   {k:'health',        e:'🩺', l:'בריאות',    g:'11', gn:'Tomato',    words:['רופא','רופאה','רופא שיניים','שיניים','בדיקה','בדיקות','טיפול','קופת חולים','doctor','dentist','checkup','clinic','appointment']},
   {k:'sports',        e:'⚽', l:'ספורט',     g:'2',  gn:'Sage',      words:['כדורגל','כדורסל','טניס','פאדל','משחק','football','soccer','basketball','tennis','match','game']},
   {k:'fitness',       e:'🏋️', l:'כושר',      g:'10', gn:'Basil',     words:['כושר','חדר כושר','אימון','ריצה','יוגה','פילאטיס','gym','workout','run','yoga','pilates','training']},
-  {k:'travel',        e:'✈️', l:'נסיעות',    g:'7',  gn:'Peacock',   words:['טיול','טיסה','חופשה','נסיעה','ים','חוף','trip','beach','flight','vacation','travel','hike']},
+  {k:'travel',        e:'✈️', l:'טיולים',    g:'7',  gn:'Peacock',   words:['טיול','טיסה','חופשה','נסיעה','ים','חוף','trip','beach','flight','vacation','travel','hike']},
   {k:'entertainment', e:'🎬', l:'בידור',     g:'3',  gn:'Grape',     words:['סרט','קולנוע','הופעה','הצגה','מופע','קונצרט','movie','cinema','concert','show','theater','theatre']},
   {k:'study',         e:'📚', l:'לימודים',   g:'8',  gn:'Graphite',  words:['שיעור','מבחן','בחינה','הרצאה','קורס','לימודים','class','exam','lecture','course']},
   {k:'work',          e:'💼', l:'עבודה',     g:'9',  gn:'Blueberry', words:['פגישה','פגישת','ישיבה','ישיבת','עבודה','שיחה','זום','ראיון','כנס','meeting','conference','call','work','zoom','interview','sync']},
@@ -643,7 +643,7 @@ async function insertEvent(d){
   return res.json();
 }
 // Description written to Google Calendar: the category, then the user's notes.
-function describe(d){ const c = catObj(d.cat); return `קטגוריה: ${c.e} ${c.l}` + (d.notes ? `\n\n${d.notes}` : ''); }
+function describe(d){ const c = catObj(d.cat); return `${c.e} ${c.l}` + (d.notes ? `\n\n${d.notes}` : ''); }
 // Google's pre-filled "create event" page has no color parameter, so there the category goes into
 // the title (emoji) and the description; the color is only set by the direct API insert.
 function templateUrl(d){

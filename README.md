@@ -28,7 +28,7 @@
 **קטגוריות ב-Google Calendar:** ל-Google Calendar אין שדה "קטגוריה", ולכן כל אירוע מקבל:
 - **צבע** (`colorId`): לכל קטגוריה צבע משלה מתוך 11 צבעי האירועים של Google.
 - `extendedProperties.private.category`: המפתח של הקטגוריה.
-- שורת "קטגוריה: …" בתיאור האירוע.
+- שורה בתיאור האירוע עם שם הקטגוריה, למשל "✈️ טיולים".
 
 | קטגוריה | צבע ב-Google |
 | --- | --- |
@@ -38,7 +38,7 @@
 | 🎂 יום הולדת (birthday) | Banana (5) |
 | ⚽ ספורט (sports) | Sage (2) |
 | 🩺 בריאות (health) | Tomato (11) |
-| ✈️ נסיעות (travel) | Peacock (7) |
+| ✈️ טיולים (travel) | Peacock (7) |
 | 🎬 בידור (entertainment) | Grape (3) |
 | 🎉 חברים (social) | Flamingo (4) |
 | 👨‍👩‍👧 משפחה (family) | Lavender (1) |
