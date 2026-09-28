@@ -12,6 +12,10 @@
    Anything else is an error status; the app then falls back to its built-in parser. */
 
 export const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
+// Tried when the main model is overloaded, too slow or out of free quota (separate quota per model).
+export const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
+const BUDGET_MS = 8500;             // total time for one request; the site waits 10 s
+const noThinkingConfig = new Set(); // models that rejected thinkingConfig
 export const CATEGORIES = ['food','fitness','work','birthday','sports','health','travel','entertainment','social','family','study','other'];
 
 export const SCHEMA = {
@@ -94,20 +98,30 @@ export function clean(j){
 }
 
 export async function extract(text, ctx, env, fetchImpl = fetch){
-  // Everything must finish well within the site's 9 s wait: 4 s per try, one retry for temporary
-  // errors (overloaded / 5xx / timeout); never for 429 (quota) or other 4xx.
+  const primary = env.GEMINI_MODEL || DEFAULT_MODEL;
+  const fallback = env.GEMINI_FALLBACK_MODEL === undefined ? DEFAULT_FALLBACK_MODEL : env.GEMINI_FALLBACK_MODEL;
+  const models = [primary, fallback].filter((m, i, a) => m && a.indexOf(m) === i);
   const started = Date.now();
-  for(let attempt = 0; ; attempt++){
-    try{ return await extractOnce(text, ctx, env, fetchImpl, 4000); }
+  let lastErr;
+  for(let i = 0; i < models.length; i++){
+    const left = BUDGET_MS - (Date.now() - started);
+    if(left < 1500) break;
+    // the main model gets up to 5.5 s, so a fallback still has time
+    const timeout = i === 0 && models.length > 1 ? Math.min(5500, left) : left;
+    try{ return await extractOnce(text, ctx, env, fetchImpl, models[i], timeout); }
     catch(e){
-      if(attempt >= 1 || !(e.status >= 500 || e.status === undefined) || Date.now() - started > 4500) throw e;
-      await new Promise(r => setTimeout(r, 300));
+      lastErr = e;
+      // a bad key or request won't get better with another model
+      if(e.status && e.status < 500 && e.status !== 429 && e.status !== 404) throw e;
     }
   }
+  throw lastErr || new Error('no time left');
 }
 
-async function extractOnce(text, ctx, env, fetchImpl, timeoutMs){
-  const model = env.GEMINI_MODEL || DEFAULT_MODEL;
+async function extractOnce(text, ctx, env, fetchImpl, model, timeoutMs){
+  const generationConfig = {temperature: 0, maxOutputTokens: 1024, responseMimeType: 'application/json', responseJsonSchema: SCHEMA};
+  // Gemini 3 models "think" by default; this simple extraction doesn't need it, and it costs seconds.
+  if(/^gemini-3/.test(model) && !noThinkingConfig.has(model)) generationConfig.thinkingConfig = {thinkingLevel: 'minimal'};
   const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     signal: AbortSignal.timeout(timeoutMs),
@@ -115,12 +129,17 @@ async function extractOnce(text, ctx, env, fetchImpl, timeoutMs){
     body: JSON.stringify({
       systemInstruction: {parts: [{text: SYSTEM}]},
       contents: [{role: 'user', parts: [{text: `Today: ${ctx.today} (${ctx.weekday}). Time now: ${ctx.now || 'unknown'}. Time zone: ${ctx.tz || 'unknown'}.\nNote: ${text}`}]}],
-      generationConfig: {temperature: 0, responseMimeType: 'application/json', responseJsonSchema: SCHEMA}
+      generationConfig
     })
   });
   if(!res.ok){
-    const err = new Error(`gemini ${res.status}`); err.status = res.status;
+    const err = new Error(`gemini ${model} ${res.status}`); err.status = res.status;
     try{ err.detail = (await res.json()).error?.message; }catch(e){}
+    // a model that doesn't accept the thinking setting: remember, and ask again without it
+    if(res.status === 400 && generationConfig.thinkingConfig && /think/i.test(err.detail || '')){
+      noThinkingConfig.add(model);
+      return extractOnce(text, ctx, env, fetchImpl, model, timeoutMs);
+    }
     throw err;
   }
   const data = await res.json();
@@ -146,6 +165,12 @@ async function health(env){
   if(out.keySet){
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, {headers:{'x-goog-api-key': key}});
     out.gemini = r.ok ? 'ok' : `HTTP ${r.status}: ${(await r.json().catch(()=>({}))).error?.message || ''}`.slice(0, 300);
+    const fb = env.GEMINI_FALLBACK_MODEL === undefined ? DEFAULT_FALLBACK_MODEL : env.GEMINI_FALLBACK_MODEL;
+    if(fb){
+      const f = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(fb)}`, {headers:{'x-goog-api-key': key}});
+      out.fallbackModel = fb;
+      out.fallback = f.ok ? 'ok' : `HTTP ${f.status}: ${(await f.json().catch(()=>({}))).error?.message || ''}`.slice(0, 200);
+    }
     out.ok = r.ok && !!out.allowedOrigins;
   }
   return new Response(JSON.stringify(out, null, 2), {status: out.ok ? 200 : 500, headers:{'Content-Type':'application/json'}});

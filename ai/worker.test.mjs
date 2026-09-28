@@ -58,9 +58,23 @@ globalThis.fetch = realFetch;
 let calls = 0;
 const flaky = async (u, o) => { calls++; return calls === 1 ? new Response('{}', {status:503}) : gemini({title:'A', date:'2026-10-01', time:'', category:'food'})(u, o); };
 assert.equal((await extract('x', ctx, env, flaky)).title, 'A'); assert.equal(calls, 2);
+// 429 on the main model → fallback model (separate quota); both 429 → error
+calls = 0; const seen = [];
+const quota = async (u) => { calls++; seen.push(u.match(/models\/([^:]+)/)[1]); return new Response('{}', {status:429}); };
+await assert.rejects(extract('x', ctx, env, quota)); assert.equal(calls, 2);
+assert.deepEqual(seen, ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']);
+// a bad key (400/401/403) is not retried
 calls = 0;
-const quota = async () => { calls++; return new Response('{}', {status:429}); };
-await assert.rejects(extract('x', ctx, env, quota)); assert.equal(calls, 1);
+await assert.rejects(extract('x', ctx, env, async () => { calls++; return new Response('{"error":{"message":"API key not valid"}}', {status:400}); }));
+assert.equal(calls, 1);
+// thinkingConfig is sent to Gemini 3 models; a model that rejects it is asked again without it
+let bodies = [];
+const noThink = async (u, o) => { const b = JSON.parse(o.body); bodies.push(b);
+  if(b.generationConfig.thinkingConfig) return new Response('{"error":{"message":"thinking_level is not supported"}}', {status:400});
+  return gemini({title:'T', date:'2026-10-01', time:'', category:'food'})(u, o); };
+assert.equal((await extract('x', ctx, env, noThink)).title, 'T');
+assert.equal(bodies[0].generationConfig.thinkingConfig.thinkingLevel, 'minimal');
+assert.equal(bodies[1].generationConfig.thinkingConfig, undefined);
 console.log('worker tests passed');
 
 // /health: reports setup without revealing the key

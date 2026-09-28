@@ -18,3 +18,5 @@ keep_vars = true
 ALLOWED_ORIGINS = "https://eithan1710.github.io"
 # Gemini model with a free tier. Change here if Google retires it.
 GEMINI_MODEL = "gemini-3.1-flash-lite"
+# Tried when the main model is overloaded/slow/out of quota. Set to "" to disable.
+GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"

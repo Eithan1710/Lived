@@ -541,7 +541,7 @@ function localParse(raw){
 async function understand(text){
   if(CONFIG.AI_ENDPOINT){
     try{
-      const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), 9000);
+      const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), 10000);
       const res = await fetch(CONFIG.AI_ENDPOINT, {method:'POST', signal:ctl.signal, headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text, today: ymd(new Date()), now: hm(new Date()), weekday: new Date().getDay(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone})});
       clearTimeout(t);

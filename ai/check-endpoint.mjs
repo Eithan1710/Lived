@@ -30,7 +30,7 @@ for(const c of cases){
       body: JSON.stringify({text: c.text, today, now: `${pad(now.getHours())}:${pad(now.getMinutes())}`, weekday: now.getDay(), tz: 'Asia/Jerusalem'})});
     if(r.ok) ev = await r.json(); else err = `HTTP ${r.status} ${await r.text()}`;
     const ms = Date.now() - t0; times.push(ms);
-    if(ms > 9000) err = (err ? err + '; ' : '') + `took ${ms} ms — the site stops waiting at 9000 ms`;
+    if(ms > 10000) err = (err ? err + '; ' : '') + `took ${ms} ms — the site stops waiting at 10000 ms`;
   }catch(e){ err = e.message; }
   const p = err ? [err] : check(ev, c);
   if(err) errors++; else if(p.length) fails++;
