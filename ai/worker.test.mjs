@@ -1,0 +1,51 @@
+// Offline tests for ai/worker.js (no API key needed): request shape, validation, origin check, errors.
+// Run: node ai/worker.test.mjs
+import assert from 'node:assert/strict';
+import worker, {clean, extract, SCHEMA, CATEGORIES, DEFAULT_MODEL} from './worker.js';
+
+let sent;
+const gemini = (payload, status = 200) => async (url, opts) => {
+  sent = {url, opts, body: JSON.parse(opts.body)};
+  return new Response(JSON.stringify(status === 200 ? {candidates:[{content:{parts:[{text: typeof payload === 'string' ? payload : JSON.stringify(payload)}]}}]} : {error:{message:'x'}}), {status});
+};
+const env = {GEMINI_API_KEY:'test-key', ALLOWED_ORIGINS:'https://site.test'};
+const ctx = {today:'2026-09-28', weekday:'Monday', now:'10:00', tz:'Asia/Jerusalem'};
+
+// request sent to Gemini: model, key in header (not URL), JSON schema output, temperature 0
+await extract('Dinner with Sarah tomorrow at 8pm', ctx, env, gemini({title:'Dinner with Sarah', date:'2026-09-29', time:'20:00', endTime:'', location:'', notes:'', category:'food'}));
+assert.match(sent.url, new RegExp(`/models/${DEFAULT_MODEL}:generateContent$`));
+assert.equal(sent.opts.headers['x-goog-api-key'], 'test-key');
+assert.ok(!sent.url.includes('test-key'), 'key must not be in the URL');
+assert.equal(sent.body.generationConfig.responseMimeType, 'application/json');
+assert.deepEqual(sent.body.generationConfig.responseJsonSchema, SCHEMA);
+assert.equal(sent.body.generationConfig.temperature, 0);
+assert.deepEqual(SCHEMA.properties.category.enum, CATEGORIES);
+assert.match(sent.body.contents[0].parts[0].text, /Today: 2026-09-28 \(Monday\)/);
+
+// validation / normalisation
+assert.deepEqual(clean({title:' Gym ', date:'2026-09-28', time:'6:05', endTime:'7:00', location:'', notes:'', category:'fitness'}),
+  {title:'Gym', date:'2026-09-28', time:'06:05', endTime:'07:00', location:'', notes:'', category:'fitness'});
+assert.equal(clean({title:'x', date:'tomorrow', time:'', category:'food'}), null);            // bad date → reject
+assert.equal(clean({title:'x', date:'2026-10-20', time:'25:00', category:'nope'}).time, '');   // bad time → all-day
+assert.equal(clean({title:'x', date:'2026-10-20', time:'', category:'nope'}).category, 'other');
+assert.equal(clean({title:'x', date:'2026-10-20', time:'', endTime:'10:00', category:'food'}).endTime, ''); // no end without start
+assert.equal(await extract('x', ctx, env, gemini('not json')), null);
+
+// HTTP handler
+const call = (origin, body, method = 'POST') => worker.fetch(new Request('https://w.test/', {method, headers:{'Origin':origin, 'Content-Type':'application/json'}, body: method==='POST' ? JSON.stringify(body) : undefined}), env);
+assert.equal((await call('https://evil.test', {text:'hi'})).status, 403);
+assert.equal((await call('https://site.test', {text:''})).status, 400);
+assert.equal((await call('https://site.test', null, 'OPTIONS')).status, 200);
+assert.equal((await worker.fetch(new Request('https://w.test/', {method:'POST', headers:{Origin:'https://site.test'}, body:'{"text":"a"}'}), {ALLOWED_ORIGINS:'https://site.test'})).status, 500);
+
+const realFetch = globalThis.fetch;
+globalThis.fetch = gemini({}, 429);
+let r = await call('https://site.test', {text:'Gym today at 6', today:'2026-09-28', weekday:1});
+assert.equal(r.status, 429);
+assert.equal(r.headers.get('Access-Control-Allow-Origin'), 'https://site.test');
+globalThis.fetch = gemini({title:'Gym', date:'2026-09-28', time:'18:00', endTime:'', location:'', notes:'', category:'fitness'});
+r = await call('https://site.test', {text:'Gym today at 6', today:'2026-09-28', weekday:1});
+assert.equal(r.status, 200);
+assert.deepEqual(await r.json(), {title:'Gym', date:'2026-09-28', time:'18:00', endTime:'', location:'', notes:'', category:'fitness'});
+globalThis.fetch = realFetch;
+console.log('worker tests passed');

@@ -1,5 +1,7 @@
-# Cloudflare Worker for Lived's AI parser. Deploy from this folder: `npx wrangler deploy`
-# Secret (never commit it): `npx wrangler secret put ANTHROPIC_API_KEY`
+# Cloudflare Worker for Lived's AI parser (Workers Free plan is enough).
+# Deploy from this folder:   npx wrangler deploy
+# Secret (never commit it):  npx wrangler secret put GEMINI_API_KEY
+# Local dev: copy .env.example to .env (git-ignored), then `npx wrangler dev`.
 name = "lived-ai"
 main = "worker.js"
 compatibility_date = "2026-09-01"
@@ -7,3 +9,5 @@ compatibility_date = "2026-09-01"
 [vars]
 # Origins allowed to call the worker (your site). Comma-separated.
 ALLOWED_ORIGINS = "https://eithan1710.github.io"
+# Gemini model with a free tier. Change here if Google retires it.
+GEMINI_MODEL = "gemini-3.1-flash-lite"

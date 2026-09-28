@@ -11,7 +11,9 @@
 | `index.html` | כל האפליקציה: ציר הזמן, הכנסת אירוע, מנתח טקסט מובנה, Google Calendar |
 | `config.example.js` | תבנית להגדרות הציבוריות (`config.js` לא נשמר ב-Git) |
 | `.github/workflows/deploy.yml` | פרסום ל-GitHub Pages ויצירת `config.js` מ-GitHub secrets |
-| `ai/worker.js`, `ai/wrangler.toml` | (אופציונלי) שרת שמנתח את הטקסט עם Claude דרך Anthropic API |
+| `ai/worker.js`, `ai/wrangler.toml` | שרת AI קטן (Cloudflare Worker) שמנתח את הטקסט עם Google Gemini API |
+| `ai/.env.example` | משתני הסביבה של שרת ה-AI |
+| `ai/worker.test.mjs`, `ai/test-live.mjs` | בדיקות: בלי מפתח / מול Gemini האמיתי |
 | `sw.js`, `manifest.json`, `icon.svg` | התקנה כאפליקציה ועבודה אופליין |
 
 ## איך זה עובד
@@ -19,9 +21,31 @@
 **איפה נשמר ציר הזמן:** ב-`localStorage` של הדפדפן, במכשיר עצמו. אין שרת ואין מסד נתונים. בנוסף, כל אירוע נשלח גם ל-Google Calendar.
 
 **הבנת הטקסט:**
-- ברירת המחדל היא מנתח מובנה שרץ בדפדפן, בלי שום API, מפתח או חשבון חיצוני.
-- אם מוגדר `AI_ENDPOINT`, הטקסט נשלח ל-Worker שקורא ל-Anthropic API (מודל `claude-haiku-4-5-20251001`) עם **המפתח שלך**, שנשמר כ-secret ב-Cloudflare.
-- אם ה-Worker לא זמין, האפליקציה חוזרת אוטומטית למנתח המובנה.
+- כשמוגדר `AI_ENDPOINT`, הטקסט נשלח ל-Worker, שקורא ל-**Google Gemini API** (מודל `gemini-3.1-flash-lite`, Free Tier) עם JSON schema. המודל חייב להחזיר בדיוק `{title, date, time, endTime, location, notes, category}`, והקטגוריה היא אחת מרשימה קבועה.
+- ה-Worker בודק את התשובה (תאריך, שעה, קטגוריה). אם משהו לא תקין, אם עבר הזמן הקצוב (9 שניות) או אם נגמרה המכסה החינמית, האפליקציה עוברת אוטומטית למנתח המובנה שרץ בדפדפן.
+- המפתח (`GEMINI_API_KEY`) נמצא רק ב-Cloudflare, לא בקוד, לא ב-Git ולא בדפדפן.
+
+**קטגוריות ב-Google Calendar:** ל-Google Calendar אין שדה "קטגוריה", ולכן כל אירוע מקבל:
+- **צבע** (`colorId`): לכל קטגוריה צבע משלה מתוך 11 צבעי האירועים של Google.
+- `extendedProperties.private.category`: המפתח של הקטגוריה.
+- שורת "קטגוריה: …" בתיאור האירוע.
+
+| קטגוריה | צבע ב-Google |
+| --- | --- |
+| 🍽️ אוכל (food) | Tangerine (6) |
+| 🏋️ כושר (fitness) | Basil (10) |
+| 💼 עבודה (work) | Blueberry (9) |
+| 🎂 יום הולדת (birthday) | Banana (5) |
+| ⚽ ספורט (sports) | Sage (2) |
+| 🩺 בריאות (health) | Tomato (11) |
+| ✈️ נסיעות (travel) | Peacock (7) |
+| 🎬 בידור (entertainment) | Grape (3) |
+| 🎉 חברים (social) | Flamingo (4) |
+| 👨‍👩‍👧 משפחה (family) | Lavender (1) |
+| 📚 לימודים (study) | Graphite (8) |
+| 📌 אחר (other) | צבע ברירת המחדל של היומן |
+
+הצבע נקבע רק בהוספה ישירה דרך ה-API, כלומר כשמוגדר `GOOGLE_CLIENT_ID`. בלי Client ID האפליקציה פותחת את דף "אירוע חדש" של Google, שאין בו אפשרות לקבוע צבע. שם הקטגוריה מופיעה כאימוג'י בכותרת ובתיאור.
 
 **Google Calendar:** OAuth 2.0 בדפדפן דרך Google Identity Services, בהרשאה `calendar.events` בלבד.
 - ה-Client ID הוא ערך ציבורי מעצם הגדרתו, ובאפליקציית דפדפן אין Client Secret בכלל.
@@ -48,20 +72,29 @@
 4. ב-**Authorized JavaScript origins** מוסיפים רק את כתובת האתר, למשל `https://eithan1710.github.io`, ו-`http://localhost:8000` לפיתוח.
 5. לא צריך Client Secret ולא redirect URI, כי זרם ה-token של GIS לא משתמש בהם.
 
-### סוד אמיתי: Cloudflare, רק אם משתמשים ב-AI
+### שרת ה-AI: Cloudflare Worker (תוכנית Workers Free מספיקה)
 
 | משתנה | סוג | איפה |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | **secret** | `cd ai && npx wrangler secret put ANTHROPIC_API_KEY` |
+| `GEMINI_API_KEY` | **secret** | `cd ai && npx wrangler secret put GEMINI_API_KEY` |
 | `ALLOWED_ORIGINS` | var | `ai/wrangler.toml`: כתובות האתר שמורשות לקרוא ל-Worker |
+| `GEMINI_MODEL` | var | `ai/wrangler.toml` (ברירת מחדל `gemini-3.1-flash-lite`) |
 
-```sh
-cd ai
-npx wrangler deploy
-npx wrangler secret put ANTHROPIC_API_KEY
-```
+1. ב-[Google AI Studio](https://aistudio.google.com/apikey) יוצרים API key **בפרויקט שאין בו billing**. כך הוא מוגבל ל-Free Tier: כשהמכסה נגמרת מקבלים שגיאה 429, לא חיוב.
+2. מפרסמים:
+   ```sh
+   cd ai
+   npx wrangler deploy
+   npx wrangler secret put GEMINI_API_KEY
+   ```
+3. את הכתובת שמתקבלת (`https://lived-ai.<account>.workers.dev`) שמים ב-GitHub secret `AI_ENDPOINT`, ומריצים שוב את ה-Deploy.
 
-המפתח לא נמצא בקוד, לא ב-Git ולא בדפדפן. ה-Worker מסרב לבקשות ממקורות שלא ברשימה. מומלץ להגדיר גם תקרת הוצאה בחשבון Anthropic.
+בדיקה מול Gemini האמיתי: `cp ai/.env.example ai/.env`, ממלאים את המפתח, ומריצים `node ai/test-live.mjs`.
+
+**חשוב על ה-Free Tier של Gemini:**
+- חינמי כל עוד לא מפעילים billing בפרויקט.
+- יש מגבלות קצב ומכסה יומית, ו-Google משנה אותן מדי פעם. המספרים העדכניים מופיעים ב-[Rate limits](https://ai.google.dev/gemini-api/docs/rate-limits).
+- ב-Free Tier, ‏Google רשאית להשתמש בטקסט שנשלח כדי לשפר את המוצרים שלה.
 
 ## פיתוח מקומי
 

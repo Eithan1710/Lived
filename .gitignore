@@ -3,4 +3,5 @@ config.js
 .dev.vars
 .env
 .env.*
+!.env.example
 node_modules/

@@ -79,8 +79,9 @@ svg.i{width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2.2;
 .dim{color:var(--muted);}
 .pick{position:relative; display:inline-flex; align-items:center; border-radius:8px; padding:2px 6px; margin:-2px -6px; font-weight:600; font-variant-numeric:tabular-nums; cursor:pointer;}
 .pick:hover{background:var(--soft);}
-.pick input{position:absolute; inset:0; width:100%; height:100%; opacity:0; border:0; cursor:pointer;}
+.pick input, .pick select{position:absolute; inset:0; width:100%; height:100%; opacity:0; border:0; cursor:pointer;}
 .pick.soft{font-weight:500; color:var(--ink2);}
+.catpick{font-size:13px; margin:0; padding:1px 6px;}
 .sub{color:var(--muted); font-size:14px; margin-inline-start:4px;}
 .cta{display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:56px; margin-top:12px; border-radius:16px; background:var(--accent); color:#fff; font-size:17px; font-weight:700;
   box-shadow:0 12px 26px -14px var(--accent); transition:background .15s, transform .1s;}
@@ -180,7 +181,7 @@ ol.tl{list-style:none; margin:0; padding:0;}
    Settings come from config.js (window.LIVED_CONFIG), generated at deploy time. Both are public values:
    - GOOGLE_CLIENT_ID: OAuth Web client ID (not a secret). With it, events go straight into Google Calendar;
      without it, Google Calendar opens with the event pre-filled.
-   - AI_ENDPOINT: URL of ai/worker.js. Without it, the built-in parser (runs in the browser) is used.
+   - AI_ENDPOINT: URL of ai/worker.js (Gemini). Without it, or when it fails, the built-in parser (runs in the browser) is used.
    No API key or other secret is ever in this file.
    ===================================================================== */
 const CONFIG = Object.assign({GOOGLE_CLIENT_ID:'', AI_ENDPOINT:''}, window.LIVED_CONFIG || {});
@@ -222,23 +223,31 @@ function fullDate(d){
 }
 
 /* =====================================================================
-   Categories — picked automatically. g = Google Calendar event color.
+   Categories — chosen by the AI (or the built-in parser), never by the user.
+   In Google Calendar a category becomes:
+     colorId       — the event color (Google has 11 event colors; each category gets its own),
+     extendedProperties.private.category — the machine-readable key,
+     a "קטגוריה:" line in the description.
+   The keys match the enum in ai/worker.js.
    ===================================================================== */
 const CATS = [
-  {k:'birthday', e:'🎂', l:'יום הולדת', g:'5',  words:['יום הולדת','יומולדת','יום-הולדת','birthday','bday']},
-  {k:'health',   e:'🩺', l:'בריאות',   g:'11', words:['רופא','רופאה','רופא שיניים','בדיקה','בדיקות','טיפול','קופת חולים','doctor','dentist','checkup']},
-  {k:'date',     e:'❤️', l:'דייט',     g:'4',  words:['דייט','רומנטי','date']},
-  {k:'sport',    e:'⚽', l:'ספורט',    g:'2',  words:['כדורגל','כדורסל','טניס','פאדל','משחק','football','soccer','basketball','tennis','match','game']},
-  {k:'gym',      e:'🏋️', l:'כושר',     g:'10', words:['כושר','חדר כושר','אימון','ריצה','יוגה','פילאטיס','gym','workout','run','yoga','pilates']},
-  {k:'trip',     e:'✈️', l:'טיול',     g:'7',  words:['טיול','טיסה','חופשה','נסיעה','ים','חוף','trip','beach','flight','vacation','travel','hike']},
-  {k:'show',     e:'🎬', l:'בידור',    g:'3',  words:['סרט','קולנוע','הופעה','הצגה','מופע','movie','cinema','concert','show']},
-  {k:'study',    e:'📚', l:'לימודים',  g:'9',  words:['שיעור','מבחן','בחינה','הרצאה','קורס','לימודים','class','exam','lecture','course']},
-  {k:'work',     e:'💼', l:'עבודה',    g:'9',  words:['פגישה','פגישת','ישיבה','ישיבת','עבודה','שיחה','זום','ראיון','meeting','call','work','zoom','interview','sync']},
-  {k:'food',     e:'🍽️', l:'ארוחה',    g:'6',  words:['ארוחה','ארוחת','מסעדה','קפה','בראנץ׳','בראנץ','dinner','lunch','breakfast','brunch','restaurant','coffee']},
-  {k:'family',   e:'👨‍👩‍👧', l:'משפחה',    g:'6',  words:['משפחה','הורים','אמא','אבא','סבתא','סבא','אחי','אחותי','family','mom','dad']},
-  {k:'friends',  e:'🎉', l:'חברים',    g:'7',  words:['חברים','יציאה','מסיבה','בר','פאב','friends','party','bar','drinks']},
-  {k:'other',    e:'📌', l:'אירוע',    g:'',   words:[]}
+  {k:'birthday',      e:'🎂', l:'יום הולדת', g:'5',  gn:'Banana',    words:['יום הולדת','יומולדת','יום-הולדת','birthday','bday']},
+  {k:'health',        e:'🩺', l:'בריאות',    g:'11', gn:'Tomato',    words:['רופא','רופאה','רופא שיניים','שיניים','בדיקה','בדיקות','טיפול','קופת חולים','doctor','dentist','checkup','clinic','appointment']},
+  {k:'sports',        e:'⚽', l:'ספורט',     g:'2',  gn:'Sage',      words:['כדורגל','כדורסל','טניס','פאדל','משחק','football','soccer','basketball','tennis','match','game']},
+  {k:'fitness',       e:'🏋️', l:'כושר',      g:'10', gn:'Basil',     words:['כושר','חדר כושר','אימון','ריצה','יוגה','פילאטיס','gym','workout','run','yoga','pilates','training']},
+  {k:'travel',        e:'✈️', l:'נסיעות',    g:'7',  gn:'Peacock',   words:['טיול','טיסה','חופשה','נסיעה','ים','חוף','trip','beach','flight','vacation','travel','hike']},
+  {k:'entertainment', e:'🎬', l:'בידור',     g:'3',  gn:'Grape',     words:['סרט','קולנוע','הופעה','הצגה','מופע','קונצרט','movie','cinema','concert','show','theater','theatre']},
+  {k:'study',         e:'📚', l:'לימודים',   g:'8',  gn:'Graphite',  words:['שיעור','מבחן','בחינה','הרצאה','קורס','לימודים','class','exam','lecture','course']},
+  {k:'work',          e:'💼', l:'עבודה',     g:'9',  gn:'Blueberry', words:['פגישה','פגישת','ישיבה','ישיבת','עבודה','שיחה','זום','ראיון','meeting','call','work','zoom','interview','sync']},
+  {k:'food',          e:'🍽️', l:'אוכל',      g:'6',  gn:'Tangerine', words:['ארוחה','ארוחת','מסעדה','קפה','בראנץ׳','בראנץ','dinner','lunch','breakfast','brunch','restaurant','coffee']},
+  {k:'family',        e:'👨‍👩‍👧', l:'משפחה',     g:'1',  gn:'Lavender',  words:['משפחה','הורים','אמא','אבא','סבתא','סבא','אחי','אחותי','family','mom','dad']},
+  {k:'social',        e:'🎉', l:'חברים',     g:'4',  gn:'Flamingo',  words:['חברים','יציאה','מסיבה','בר','פאב','דייט','friends','party','bar','drinks','date']},
+  {k:'other',         e:'📌', l:'אחר',       g:'',   gn:'',          words:[]}
 ];
+// category keys used by earlier versions of the app
+const OLD_CATS = {gym:'fitness', sport:'sports', trip:'travel', show:'entertainment', friends:'social', date:'social'};
+const normCat = k => CATS.some(c=>c.k===k) ? k : (OLD_CATS[k] || null);
+const fallbackTitle = c => c.k==='other' ? 'אירוע' : c.l;
 const catObj = k => CATS.find(c=>c.k===k) || CATS[CATS.length-1];
 
 /* =====================================================================
@@ -397,7 +406,7 @@ function localParse(raw){
   const rest = strip(raw, dr.strs);
   const tm = detectTimes(rest);
   const {title, location} = splitLocation(cleanTitle(strip(rest, tm.strs)));
-  const base = {title: title || cat.l, location, notes:'', cat:cat.k};
+  const base = {title: title || fallbackTitle(cat), location, notes:'', cat:cat.k};
   if(!tm.start) return {...base, allDay:true, start:sod(dr.date), end:addDays(sod(dr.date),1)};
   const start = new Date(dr.date); start.setHours(tm.start.h, tm.start.m, 0, 0);
   let end;
@@ -424,8 +433,8 @@ async function understand(text){
 function fromAI(j, text){
   if(!j || typeof j.date!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(j.date)) return null;
   const day = parseYMD(j.date);
-  const cat = CATS.some(c=>c.k===j.category) ? j.category : detectCategory(text).k;
-  const base = {title:String(j.title||'').trim() || catObj(cat).l, location:String(j.location||'').trim(), notes:String(j.notes||'').trim(), cat};
+  const cat = normCat(j.category) || detectCategory(text).k;
+  const base = {title:String(j.title||'').trim() || fallbackTitle(catObj(cat)), location:String(j.location||'').trim(), notes:String(j.notes||'').trim(), cat};
   const tp = s => (typeof s==='string' && /^\d{1,2}:\d{2}$/.test(s)) ? s.split(':').map(Number) : null;
   const st = tp(j.time);
   if(!st) return {...base, allDay:true, start:day, end:addDays(day,1)};
@@ -443,11 +452,11 @@ const KEY = 'lived_events';
 let events = [];
 function load(){
   const rows = LS.get(KEY, null);
-  if(rows) events = rows.map(r=>({...r, start:new Date(r.start), end:new Date(r.end)})).filter(e=>!isNaN(e.start));
+  if(rows) events = rows.map(r=>({...r, cat: normCat(r.cat) || detectCategory(r.title||'').k, start:new Date(r.start), end:new Date(r.end)})).filter(e=>!isNaN(e.start));
   else {
     // one-time import of events saved on this device by the previous calendar app
     events = LS.get('ep_local_events', []).map(r=>({id:r.id||uid(), title:r.title, start:new Date(r.start), end:new Date(r.end), allDay:!!r.allDay,
-      location:r.location||'', notes:r.notes||'', cat: CATS.some(c=>c.k===r.cat) ? r.cat : detectCategory(r.title||'').k})).filter(e=>!isNaN(e.start));
+      location:r.location||'', notes:r.notes||'', cat: normCat(r.cat) || detectCategory(r.title||'').k})).filter(e=>!isNaN(e.start));
     persist();
   }
 }
@@ -491,8 +500,9 @@ function disconnect(){
 const rfc = x => `${x.getFullYear()}-${pad(x.getMonth()+1)}-${pad(x.getDate())}T${pad(x.getHours())}:${pad(x.getMinutes())}:00`;
 function googleBody(d){
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone, c = catObj(d.cat);
-  const b = {summary:d.title, location:d.location||undefined, description:d.notes||undefined};
-  if(c.g) b.colorId = c.g;
+  const b = {summary:d.title, location:d.location||undefined, description:describe(d),
+    extendedProperties:{private:{app:'lived', category:c.k}}};
+  if(c.g) b.colorId = c.g;                 // the category's Google event color
   if(d.allDay){ b.start={date:ymd(d.start)}; b.end={date:ymd(d.end)}; }
   else { b.start={dateTime:rfc(d.start), timeZone:tz}; b.end={dateTime:rfc(d.end), timeZone:tz}; }
   return b;
@@ -504,12 +514,16 @@ async function insertEvent(d){
   if(!res.ok) throw {code:'http', status:res.status};
   return res.json();
 }
+// Description written to Google Calendar: the category, then the user's notes.
+function describe(d){ const c = catObj(d.cat); return `קטגוריה: ${c.e} ${c.l}` + (d.notes ? `\n\n${d.notes}` : ''); }
+// Google's pre-filled "create event" page has no color parameter, so there the category goes into
+// the title (emoji) and the description; the color is only set by the direct API insert.
 function templateUrl(d){
   const f = x => d.allDay ? ymd(x).replace(/-/g,'') : rfc(x).replace(/[-:]/g,'');
-  const p = new URLSearchParams({action:'TEMPLATE', text:d.title, dates:`${f(d.start)}/${f(d.end)}`});
+  const c = catObj(d.cat);
+  const p = new URLSearchParams({action:'TEMPLATE', text:(c.k!=='other' ? c.e+' ' : '') + d.title, dates:`${f(d.start)}/${f(d.end)}`, details:describe(d)});
   if(!d.allDay) p.set('ctz', Intl.DateTimeFormat().resolvedOptions().timeZone);
   if(d.location) p.set('location', d.location);
-  if(d.notes) p.set('details', d.notes);
   return 'https://calendar.google.com/calendar/render?' + p.toString();
 }
 // Called from a click. Direct insert when a Client ID is configured; otherwise a pre-filled Google Calendar page.
@@ -554,7 +568,8 @@ function renderReview(){
           <div class="emoji" aria-hidden="true">${c.e}</div>
           <div style="flex:1;min-width:0">
             <input class="c-title" id="fTitle" value="${esc(d.title)}" aria-label="שם האירוע">
-            <div class="c-meta"><span class="tag ${up?'up':'past'}">${up?'מתוכנן':'קרה'}</span>${esc(c.l)}</div>
+            <div class="c-meta"><span class="tag ${up?'up':'past'}">${up?'מתוכנן':'קרה'}</span>
+              <label class="pick soft catpick">${esc(c.l)}<select id="fCat" aria-label="קטגוריה">${CATS.map(x=>`<option value="${x.k}"${x.k===c.k?' selected':''}>${x.e} ${esc(x.l)}</option>`).join('')}</select></label></div>
           </div>
         </div>
         <div class="rows">
@@ -581,6 +596,7 @@ function renderReview(){
 function bindReview(){
   const d = st.draft;
   $('#fTitle').addEventListener('input', e=>{ d.title = e.target.value; });
+  $('#fCat').addEventListener('change', e=>{ d.cat = e.target.value; renderReview(); });
   $('#fLoc') && $('#fLoc').addEventListener('input', e=>{ d.location = e.target.value; });
   $('#fNotes') && $('#fNotes').addEventListener('input', e=>{ d.notes = e.target.value; });
   document.querySelectorAll('#review .pick input').forEach(inp=>inp.addEventListener('click', ()=>{ try{ inp.showPicker(); }catch(e){} }));
@@ -621,7 +637,7 @@ function resetComposer(){ st.seq++; st.phase='idle'; st.draft=null; text.value='
 
 function save(){
   const d = st.draft;
-  const ev = {id:uid(), title:(d.title||'').trim() || catObj(d.cat).l, start:d.start, end:d.end, allDay:d.allDay,
+  const ev = {id:uid(), title:(d.title||'').trim() || fallbackTitle(catObj(d.cat)), start:d.start, end:d.end, allDay:d.allDay,
     location:(d.location||'').trim(), notes:(d.notes||'').trim(), cat:d.cat};
   events.push(ev); persist();
   const google = sendToGoogle(ev);          // inside the click: popup / new tab allowed
