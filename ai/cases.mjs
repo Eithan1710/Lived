@@ -41,7 +41,7 @@ export function buildCases(today = new Date()){
     {text: 'אתמול ארוחת ערב עם שרה ב-20:00', title: /^ארוחת ערב עם שרה$/, date: plus(-1), time: '20:00', category: ['food']},
     {text: 'פגישה עם יוסי מחר ב-14:00 בתל אביב', title: /^פגישה עם יוסי$/, date: plus(1), time: '14:00', location: /תל אביב/, category: ['work']},
     {text: 'הייתי בהופעה של עומר אדם בקיסריה ביום חמישי שעבר', title: /הופעה של עומר אדם/, date: last(4), time: '', location: /קיסריה/, category: ['entertainment']},
-    {text: 'ארוחת צהריים עם אבא ביום שישי בצהריים', title: /ארוחת צהריים עם אבא/, date: [coming(5), next(5)], time: '13:00', category: ['food', 'family']},
+    {text: 'ארוחת צהריים עם אבא ביום שישי בצהריים', title: /ארוחת צהריים עם אבא/, date: [coming(5), next(5)], time: '12:00', category: ['food', 'family']},
     {text: 'ריצה בפארק הירקון מחר בבוקר', title: /^ריצה$/, date: plus(1), time: '09:00', location: /פארק הירקון/, category: ['fitness']},
     {text: 'רופא שיניים ב-3.10 ב-8:30', title: /רופא שיניים/, date: md(10, 3), time: '08:30', category: ['health']},
     {text: 'מבחן במתמטיקה ביום שלישי ב-9', title: /מבחן/, date: [coming(2), next(2)], time: '09:00', location: /^$/, category: ['study']},

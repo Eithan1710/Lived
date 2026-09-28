@@ -32,7 +32,9 @@ export const SCHEMA = {
 export const SYSTEM = `You turn one short personal note (Hebrew or English) into a calendar event.
 The note may describe something that already happened ("אתמול…", "Yesterday I had…", "last Friday") or something planned ("מחר…", "next Tuesday").
 Rules:
-- title: a short noun phrase in the note's language: "Dinner with Sarah", "ארוחת ערב עם שרה", "Mom's birthday". No "I had", no date/time/place words.
+- LANGUAGE: title, location and notes stay in the note's own language. Never translate: an English note gets an English title
+  ("Vacation in Greece Oct 10-15" → title "Vacation", location "Greece"; "Dentist appointment" → "Dentist appointment").
+- title: a short noun phrase: "Dinner with Sarah", "ארוחת ערב עם שרה", "Mom's birthday". No "I had", no date/time/place words.
 - The note may have typos ("סטפמבר" = September, "אוקטבר" = October) and filler words ("בתאריך"). Understand them; never copy them into the title.
 - Numeric dates are DAY first, then month (Israeli style): "12/10" = 12 October, "3.11" = 3 November, "25-26.9" = 25–26 September.
 - date: resolve relative dates from the given today and weekday. "tomorrow"/"מחר" = today+1, "yesterday"/"אתמול" = today-1.
@@ -40,11 +42,13 @@ Rules:
   "next <weekday>" = the first such day after today. "last <weekday>"/"<יום> שעבר" = the most recent such day before today.
   A date without a year = the nearest occurrence in the direction the note implies (past tense → past, otherwise the next one).
 - time: 24h. "8pm"/"8 בערב" = 20:00. A bare hour 1–7 without am/morning means pm ("Gym at 6" = 18:00). "" if no time.
+  Parts of the day without an hour: morning/"בבוקר" = 09:00, noon/"בצהריים" = 12:00, afternoon/"אחר הצהריים" = 16:00,
+  evening/"בערב" = 19:00, night/"בלילה" = 22:00.
 - endDate: for events that last several days, the LAST day (inclusive): "3-6 באוקטובר" → date 10-03, endDate 10-06; "טיול 25-26.9" → date 09-25, endDate 09-26;
   "from Oct 3 to Oct 6", "מ-3 עד 6 באוקטובר", "Sunday to Tuesday", "for 3 days" (date + 2), "לשבוע" (date + 6), "חופשה ביוון 12/10 עד 15/10".
   Also set it when a timed event ends after midnight ("party 22:00-02:00" → endDate = next day). "" for single-day events.
 - endTime: only if the note states an end; with endDate it is the time on the last day ("from Oct 3 9:00 to Oct 5 17:00").
-- location: only an explicit place ("in Tel Aviv", "בתל אביב"), else "". If several places are listed
+- location: only an explicit place ("in Tel Aviv", "בתל אביב"), else "". "אצל דני" / "at Dan's" is not a place name: leave location "". If several places are listed
   ("נחל קיבוצים + דירה בעפולה + הר תבור"), list them all, comma-separated: "נחל קיבוצים, עפולה, הר תבור".
 - notes: other useful details, e.g. where they stayed ("לינה בדירה בעפולה"), else "".
 - Example: "טיול עם חברים: נחל קיבוצים + דירה בעפולה + הר תבור בתאריך 25 עד ה26 בסטפמבר" →
@@ -90,6 +94,17 @@ export function clean(j){
 }
 
 export async function extract(text, ctx, env, fetchImpl = fetch){
+  // one retry for temporary errors (overloaded / 5xx); not for 429 (quota) or 4xx
+  for(let attempt = 0; ; attempt++){
+    try{ return await extractOnce(text, ctx, env, fetchImpl); }
+    catch(e){
+      if(attempt >= 1 || !(e.status >= 500 || e.status === undefined)) throw e;
+      await new Promise(r => setTimeout(r, 700));
+    }
+  }
+}
+
+async function extractOnce(text, ctx, env, fetchImpl){
   const model = env.GEMINI_MODEL || DEFAULT_MODEL;
   const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
@@ -162,7 +177,7 @@ export default {
     }catch(e){
       // 429 = free-tier quota used up; the app falls back to its built-in parser
       console.log('gemini error', e.status, e.detail || e.message);
-      return reply({error: e.status === 429 ? 'rate limited' : 'ai unavailable'}, e.status === 429 ? 429 : 502, h);
+      return reply({error: e.status === 429 ? 'rate limited' : 'ai unavailable', upstream: e.status || String(e.message).slice(0, 80)}, e.status === 429 ? 429 : 502, h);
     }
   }
 };

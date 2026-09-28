@@ -457,7 +457,7 @@ function detectTimes(text){
   if(m){ const s=timeParts(m[1], text); if(s) return {start:s, strs:[m[0]]}; }
   m = text.match(/(?<![\d./])(\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm))(?![\d./])/i);
   if(m){ const s=timeParts(m[1], text); if(s) return {start:s, strs:[m[0]]}; }
-  const TOD = [['אחר הצהריים',16],['בצהריים',13],['בבוקר',9],['בערב',19],['הערב',19],['בלילה',22],['morning',9],['noon',12],['afternoon',16],['evening',19],['tonight',20]];
+  const TOD = [['אחר הצהריים',16],['בצהריים',12],['בבוקר',9],['בערב',19],['הערב',19],['בלילה',22],['morning',9],['noon',12],['afternoon',16],['evening',19],['tonight',20]];
   for(const [w,h] of TOD){
     const mm = text.match(/^[a-z]/.test(w) ? new RegExp(`\\b(?:in the |this |at )?${w}\\b`,'i') : new RegExp(`(?<!${HEB})${w}(?!${HEB})`));
     if(mm) return {start:{h, m:0}, strs:[mm[0]]};

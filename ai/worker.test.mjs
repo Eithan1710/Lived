@@ -54,6 +54,13 @@ r = await call('https://site.test', {text:'Gym today at 6', today:'2026-09-28', 
 assert.equal(r.status, 200);
 assert.deepEqual(await r.json(), {title:'Gym', date:'2026-09-28', time:'18:00', endDate:'', endTime:'', location:'', notes:'', category:'fitness'});
 globalThis.fetch = realFetch;
+// retry: a 503 then a good answer → success; 429 → no retry
+let calls = 0;
+const flaky = async (u, o) => { calls++; return calls === 1 ? new Response('{}', {status:503}) : gemini({title:'A', date:'2026-10-01', time:'', category:'food'})(u, o); };
+assert.equal((await extract('x', ctx, env, flaky)).title, 'A'); assert.equal(calls, 2);
+calls = 0;
+const quota = async () => { calls++; return new Response('{}', {status:429}); };
+await assert.rejects(extract('x', ctx, env, quota)); assert.equal(calls, 1);
 console.log('worker tests passed');
 
 // /health: reports setup without revealing the key
