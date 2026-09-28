@@ -68,4 +68,11 @@ assert.match(hj.gemini, /HTTP 400: API key not valid/);
 hj = await (await worker.fetch(new Request('https://w.test/health'), {ALLOWED_ORIGINS:'x'})).json();
 assert.equal(hj.keySet, false); assert.equal(hj.ok, false);
 globalThis.fetch = realFetch;
+// key under a slightly different name is still found; health lists names, not values
+globalThis.fetch = async () => new Response('{}', {status:200});
+hj = await (await worker.fetch(new Request('https://w.test/health'), {'GEMINI_API_KEY ':'k1', ALLOWED_ORIGINS:'x'})).json();
+assert.equal(hj.keySet, true); assert.ok(hj.variableNames.includes('GEMINI_API_KEY ')); assert.ok(!JSON.stringify(hj).includes('k1'));
+hj = await (await worker.fetch(new Request('https://w.test/health'), {google_api_key:'k2', ALLOWED_ORIGINS:'x'})).json();
+assert.equal(hj.keySet, true);
+globalThis.fetch = realFetch;
 console.log('health tests passed');

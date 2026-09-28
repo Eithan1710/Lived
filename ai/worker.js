@@ -56,6 +56,13 @@ Rules:
   family = family visits and gatherings · study = classes, exams, lectures · other = none of these.`;
 
 const TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+// The key, even if it was saved under a slightly different name (spaces, lower case, GOOGLE_API_KEY).
+export function apiKey(env){
+  if(env.GEMINI_API_KEY) return String(env.GEMINI_API_KEY).trim();
+  for(const [k, v] of Object.entries(env || {}))
+    if(/^(gemini|google)[_-]?(api)?[_-]?key$/i.test(k.trim()) && typeof v === 'string' && v.trim()) return v.trim();
+  return '';
+}
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Makes sure the model output is exactly the promised shape; returns null if it can't be trusted.
@@ -86,7 +93,7 @@ export async function extract(text, ctx, env, fetchImpl = fetch){
   const model = env.GEMINI_MODEL || DEFAULT_MODEL;
   const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
-    headers: {'x-goog-api-key': env.GEMINI_API_KEY, 'Content-Type': 'application/json'},
+    headers: {'x-goog-api-key': apiKey(env), 'Content-Type': 'application/json'},
     body: JSON.stringify({
       systemInstruction: {parts: [{text: SYSTEM}]},
       contents: [{role: 'user', parts: [{text: `Today: ${ctx.today} (${ctx.weekday}). Time now: ${ctx.now || 'unknown'}. Time zone: ${ctx.tz || 'unknown'}.\nNote: ${text}`}]}],
@@ -115,9 +122,11 @@ const reply = (body, status, headers) => new Response(JSON.stringify(body), {sta
 // and whether Gemini accepts it for the configured model (a model lookup, which uses no generation quota).
 async function health(env){
   const model = env.GEMINI_MODEL || DEFAULT_MODEL;
-  const out = {ok:false, model, keySet: !!env.GEMINI_API_KEY, allowedOrigins: String(env.ALLOWED_ORIGINS || '')};
+  const key = apiKey(env);
+  // variable NAMES only (never values), to spot a misnamed or missing key
+  const out = {ok:false, model, keySet: !!key, allowedOrigins: String(env.ALLOWED_ORIGINS || ''), variableNames: Object.keys(env || {}).sort()};
   if(out.keySet){
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, {headers:{'x-goog-api-key': env.GEMINI_API_KEY}});
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, {headers:{'x-goog-api-key': key}});
     out.gemini = r.ok ? 'ok' : `HTTP ${r.status}: ${(await r.json().catch(()=>({}))).error?.message || ''}`.slice(0, 300);
     out.ok = r.ok && !!out.allowedOrigins;
   }
@@ -133,7 +142,7 @@ export default {
     const h = cors(origin);
     if(req.method === 'OPTIONS') return new Response(null, {headers:h});
     if(req.method !== 'POST') return reply({error:'POST only'}, 405, h);
-    if(!env.GEMINI_API_KEY) return reply({error:'GEMINI_API_KEY is not set'}, 500, h);
+    if(!apiKey(env)) return reply({error:'GEMINI_API_KEY is not set'}, 500, h);
 
     let body;
     try{ body = await req.json(); }catch(e){ return reply({error:'bad json'}, 400, h); }

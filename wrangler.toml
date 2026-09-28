@@ -9,6 +9,9 @@ name = "lived-ai"
 main = "ai/worker.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
+# Keep variables set in the Cloudflare dashboard when this file deploys (otherwise a deploy removes
+# any dashboard "Text" variable that isn't listed below). Secrets are always kept.
+keep_vars = true
 
 [vars]
 # Origins allowed to call the worker (your site). Comma-separated.
