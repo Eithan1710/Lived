@@ -8,7 +8,7 @@
    - GEMINI_MODEL     var      optional, default below.
 
    Response (always this shape, status 200):
-   {title, date:"YYYY-MM-DD", time:"HH:MM"|"", endTime:"HH:MM"|"", location, notes, category}
+   {title, date:"YYYY-MM-DD", time:"HH:MM"|"", endDate:"YYYY-MM-DD"|"", endTime:"HH:MM"|"", location, notes, category}
    Anything else is an error status; the app then falls back to its built-in parser. */
 
 export const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
@@ -18,14 +18,15 @@ export const SCHEMA = {
   type: 'object',
   properties: {
     title:    {type:'string', description:'Short event name in the language of the note, without date, time or location words.'},
-    date:     {type:'string', description:'Event date, YYYY-MM-DD.'},
+    date:     {type:'string', description:'Start date, YYYY-MM-DD.'},
     time:     {type:'string', description:'Start time HH:MM (24h), or "" if no time is mentioned.'},
-    endTime:  {type:'string', description:'End time HH:MM (24h) only if stated, else "".'},
+    endDate:  {type:'string', description:'Last day YYYY-MM-DD if the event spans more than one day (or ends after midnight), else "".'},
+    endTime:  {type:'string', description:'End time HH:MM (24h) only if stated, else "". It is on endDate when endDate is set.'},
     location: {type:'string', description:'Place, or "" if none.'},
     notes:    {type:'string', description:'Other useful details from the note, or "".'},
     category: {type:'string', enum: CATEGORIES}
   },
-  required: ['title','date','time','endTime','location','notes','category']
+  required: ['title','date','time','endDate','endTime','location','notes','category']
 };
 
 export const SYSTEM = `You turn one short personal note (Hebrew or English) into a calendar event.
@@ -37,7 +38,10 @@ Rules:
   "next <weekday>" = the first such day after today. "last <weekday>"/"<יום> שעבר" = the most recent such day before today.
   A date without a year = the nearest occurrence in the direction the note implies (past tense → past, otherwise the next one).
 - time: 24h. "8pm"/"8 בערב" = 20:00. A bare hour 1–7 without am/morning means pm ("Gym at 6" = 18:00). "" if no time.
-- endTime: only if the note states an end.
+- endDate: for events that last several days, the LAST day (inclusive): "3-6 באוקטובר" → date 10-03, endDate 10-06;
+  "from Oct 3 to Oct 6", "מ-3 עד 6 באוקטובר", "Sunday to Tuesday", "for 3 days" (date + 2), "לשבוע" (date + 6), "חופשה ביוון 12/10 עד 15/10".
+  Also set it when a timed event ends after midnight ("party 22:00-02:00" → endDate = next day). "" for single-day events.
+- endTime: only if the note states an end; with endDate it is the time on the last day ("from Oct 3 9:00 to Oct 5 17:00").
 - location: only an explicit place ("in Tel Aviv", "בתל אביב"), else "".
 - category, pick the best fit:
   food = meals, restaurants, coffee, drinks with food · fitness = gym, workout, running, yoga · work = meetings, calls, interviews, office ·
@@ -56,10 +60,15 @@ export function clean(j){
   if(!DATE.test(date) || isNaN(new Date(date + 'T00:00:00Z'))) return null;
   const hhmm = v => { const m = str(v).match(TIME); return m ? `${m[1].padStart(2,'0')}:${m[2]}` : ''; };
   const time = hhmm(j.time);
+  // endDate must be a real date after the start date, and not absurdly far (a year at most)
+  let endDate = str(j.endDate);
+  if(!DATE.test(endDate) || isNaN(new Date(endDate + 'T00:00:00Z')) || endDate <= date
+     || new Date(endDate) - new Date(date) > 366 * 864e5) endDate = '';
   return {
     title: str(j.title).slice(0, 120),
     date,
     time,
+    endDate,
     endTime: time ? hhmm(j.endTime) : '',
     location: str(j.location).slice(0, 120),
     notes: str(j.notes).slice(0, 500),

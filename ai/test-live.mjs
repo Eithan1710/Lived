@@ -31,6 +31,10 @@ const cases = [
   ['אתמול ארוחת ערב עם שרה ב-20:00',            {date:[plus(-1)], time:'20:00', category:'food'}],
   ['הלכתי לרופא שיניים ביום חמישי שעבר',         {date:[plus(lastDow(4))], time:'', category:'health'}],
   ['פגישה עם יוסי מחר ב-14:00 בתל אביב',         {date:[plus(1)], time:'14:00', category:'work', location:/תל אביב/}],
+  // multi-day
+  ['חופשה באילת 3-6 באוקטובר',                  {dateEnds:'-10-03', endDateEnds:'-10-06', time:'', category:'travel', location:/אילת/}],
+  ['Conference in Berlin from Oct 12 9:00 to Oct 14 17:00', {dateEnds:'-10-12', endDateEnds:'-10-14', time:'09:00', endTime:'17:00', category:'work'}],
+  ['Camping trip tomorrow for 3 days',         {date:[plus(1)], endDate:[plus(3)], time:'', category:'travel'}],
 ];
 
 let fails = 0;
@@ -43,6 +47,10 @@ for(const [text, exp] of cases){
     if(exp.date && !exp.date.includes(ev.date)) problems.push(`date ${ev.date} (expected ${exp.date.join(' or ')})`);
     if(exp.dateEnds && !ev.date.endsWith(exp.dateEnds)) problems.push(`date ${ev.date}`);
     if(ev.time !== exp.time) problems.push(`time "${ev.time}" (expected "${exp.time}")`);
+    if(exp.endDate && !exp.endDate.includes(ev.endDate)) problems.push(`endDate ${ev.endDate} (expected ${exp.endDate.join(' or ')})`);
+    if(exp.endDateEnds && !ev.endDate.endsWith(exp.endDateEnds)) problems.push(`endDate "${ev.endDate}"`);
+    if(!exp.endDate && !exp.endDateEnds && ev.endDate) problems.push(`unexpected endDate ${ev.endDate}`);
+    if(exp.endTime && ev.endTime !== exp.endTime) problems.push(`endTime "${ev.endTime}"`);
     if(ev.category !== exp.category) problems.push(`category ${ev.category} (expected ${exp.category})`);
     if(exp.location && !exp.location.test(ev.location)) problems.push(`location "${ev.location}"`);
   }

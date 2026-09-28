@@ -82,6 +82,7 @@ svg.i{width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2.2;
 .pick input, .pick select{position:absolute; inset:0; width:100%; height:100%; opacity:0; border:0; cursor:pointer;}
 .pick.soft{font-weight:500; color:var(--ink2);}
 .catpick{font-size:13px; margin:0; padding:1px 6px;}
+.addend{font-size:14px; margin-inline-start:auto;}
 .sub{color:var(--muted); font-size:14px; margin-inline-start:4px;}
 .cta{display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:56px; margin-top:12px; border-radius:16px; background:var(--accent); color:#fff; font-size:17px; font-weight:700;
   box-shadow:0 12px 26px -14px var(--accent); transition:background .15s, transform .1s;}
@@ -218,6 +219,28 @@ function relDay(d){
   return n===0?'היום' : n===1?'מחר' : n===-1?'אתמול' : n===2?'מחרתיים' : n===-2?'שלשום'
     : (n>2 && n<7) ? `בעוד ${n} ימים` : (n<-2 && n>-7) ? `לפני ${-n} ימים` : '';
 }
+const MONTHS_SHORT = ['ינו׳','פבר׳','מרץ','אפר׳','מאי','יוני','יולי','אוג׳','ספט׳','אוק׳','נוב׳','דצמ׳'];
+function shortDate(d){ return `${DAYS_SHORT[d.getDay()]} ${d.getDate()} ב${MONTHS_SHORT[d.getMonth()]}`; }
+// The last calendar day an event covers. All-day ends are exclusive (like Google): a one-day event ends at next midnight.
+const lastDay = e => e.allDay ? addDays(sod(e.end), -1) : sod(new Date(e.end.getTime() - 1));
+const isMulti = e => lastDay(e) > sod(e.start);
+const dayCount = e => Math.round((lastDay(e) - sod(e.start)) / DAY) + 1;
+const daysText = n => n===2 ? 'יומיים' : `${n} ימים`;
+const isOngoing = e => isMulti(e) && e.start <= new Date() && e.end > new Date();
+// "3–6 באוק׳" / "30 בספט׳ – 2 באוק׳" / "3.10 18:00 – 6.10 10:00"
+function spanText(e){
+  const s = e.start, l = lastDay(e);
+  if(!e.allDay) return `${s.getDate()}.${s.getMonth()+1} ${hm(s)} – ${e.end.getDate()}.${e.end.getMonth()+1} ${hm(e.end)}`;
+  // a plain hyphen between two numbers keeps "26-30" in reading order inside Hebrew text (an en dash flips it)
+  return s.getMonth()===l.getMonth() ? `${s.getDate()}-${l.getDate()} ב${MONTHS_SHORT[l.getMonth()]}`
+    : `${s.getDate()} ב${MONTHS_SHORT[s.getMonth()]} – ${l.getDate()} ב${MONTHS_SHORT[l.getMonth()]}`;
+}
+// Full wording for the details view.
+function whenText(e){
+  if(!isMulti(e)) return fullDate(e.start) + (e.allDay ? '' : ` · ${hm(e.start)}–${hm(e.end)}`);
+  return e.allDay ? `${fullDate(e.start)} עד ${fullDate(lastDay(e))} · ${daysText(dayCount(e))}`
+    : `${fullDate(e.start)} ${hm(e.start)} עד ${fullDate(e.end)} ${hm(e.end)}`;
+}
 function fullDate(d){
   return `יום ${DAYS[d.getDay()]}, ${d.getDate()} ב${MONTHS[d.getMonth()]}` + (d.getFullYear()!==new Date().getFullYear() ? ` ${d.getFullYear()}` : '');
 }
@@ -238,7 +261,7 @@ const CATS = [
   {k:'travel',        e:'✈️', l:'נסיעות',    g:'7',  gn:'Peacock',   words:['טיול','טיסה','חופשה','נסיעה','ים','חוף','trip','beach','flight','vacation','travel','hike']},
   {k:'entertainment', e:'🎬', l:'בידור',     g:'3',  gn:'Grape',     words:['סרט','קולנוע','הופעה','הצגה','מופע','קונצרט','movie','cinema','concert','show','theater','theatre']},
   {k:'study',         e:'📚', l:'לימודים',   g:'8',  gn:'Graphite',  words:['שיעור','מבחן','בחינה','הרצאה','קורס','לימודים','class','exam','lecture','course']},
-  {k:'work',          e:'💼', l:'עבודה',     g:'9',  gn:'Blueberry', words:['פגישה','פגישת','ישיבה','ישיבת','עבודה','שיחה','זום','ראיון','meeting','call','work','zoom','interview','sync']},
+  {k:'work',          e:'💼', l:'עבודה',     g:'9',  gn:'Blueberry', words:['פגישה','פגישת','ישיבה','ישיבת','עבודה','שיחה','זום','ראיון','כנס','meeting','conference','call','work','zoom','interview','sync']},
   {k:'food',          e:'🍽️', l:'אוכל',      g:'6',  gn:'Tangerine', words:['ארוחה','ארוחת','מסעדה','קפה','בראנץ׳','בראנץ','dinner','lunch','breakfast','brunch','restaurant','coffee']},
   {k:'family',        e:'👨‍👩‍👧', l:'משפחה',     g:'1',  gn:'Lavender',  words:['משפחה','הורים','אמא','אבא','סבתא','סבא','אחי','אחותי','family','mom','dad']},
   {k:'social',        e:'🎉', l:'חברים',     g:'4',  gn:'Flamingo',  words:['חברים','יציאה','מסיבה','בר','פאב','דייט','friends','party','bar','drinks','date']},
@@ -318,7 +341,7 @@ function detectDate(text, dir){
   if((m=lower.match(/\btoday\b|\btonight\b/))) return hit(today, /tonight/.test(m[0]) ? '' : sub(m));
   // weekdays: "ביום ראשון", "ביום שישי שעבר", "בחמישי", "last Friday", "on Sunday"
   for(let i=0;i<7;i++){
-    const h = text.match(new RegExp(`(?<!${HEB})(?:(?:ב|ל)?יום\\s+|ב)${DAYS[i]}(?:\\s+(הבא|הקרוב|שעבר))?(?!${HEB})`));
+    const h = text.match(new RegExp(`(?<!${HEB})(?:(?:ב|ל|מ)?יום\\s+|ב)${DAYS[i]}(?:\\s+(הבא|הקרוב|שעבר))?(?!${HEB})`));
     const e = lower.match(new RegExp(`\\b(?:(next|last|this|on)\\s+)?(?:${EN_DAYS[i].join('|')})\\b`));
     if(!h && !e) continue;
     const s = h ? h[0] : sub(e);
@@ -333,6 +356,63 @@ function detectDate(text, dir){
   return {date:today, strs:[], found:false};
 }
 
+// Date ranges: "3-6 באוקטובר", "מ-3 עד 6 באוקטובר", "12/10 עד 14/10", "October 3 to October 6", "Oct 3-6",
+// "מ-30 בספטמבר עד 2 באוקטובר". Returns {start, end (last day), strs} or null.
+function detectRange(text, dir){
+  const lower = text.toLowerCase(), sub = m => text.substr(m.index, m[0].length);
+  const HM = `(${MONTHS.join('|')})`, enM = `(${EN_MONTHS.map(x=>x+'[a-z]*').join('|')})`;
+  const fixEnd = (s, e) => e < s ? new Date(e.getFullYear()+1, e.getMonth(), e.getDate()) : e;
+  const okDay = n => n>=1 && n<=31;
+  let m;
+  // "3-6 באוקטובר", "מ-3 עד 6 באוקטובר", "בין 3 ל-6 באוקטובר"
+  m = text.match(new RegExp(`(?:בין\\s+|מ-?|ב-?)?(\\d{1,2})\\s*(?:-|–|עד|ל-?)\\s*(\\d{1,2})\\s*(?:ב|ל)?${HM}(?!${HEB})`));
+  if(m && okDay(+m[1]) && okDay(+m[2]) && +m[1] < +m[2]){
+    const s = placeYear(MONTHS.indexOf(m[3]), +m[1], dir);
+    return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[2]), strs:[m[0]]};
+  }
+  // "Oct 3-6", "October 3 to 6", "3-6 October"
+  m = lower.match(new RegExp(`\\b(?:from\\s+)?${enM}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:-|–|to|until|through)\\s*(\\d{1,2})(?:st|nd|rd|th)?\\b(?!\\s*:)`));
+  if(m && okDay(+m[2]) && okDay(+m[3]) && +m[2] < +m[3]){
+    const s = placeYear(EN_MONTHS.indexOf(m[1].slice(0,3)), +m[2], dir);
+    return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[3]), strs:[sub(m)]};
+  }
+  m = lower.match(new RegExp(`\\b(?:from\\s+)?(\\d{1,2})\\s*(?:-|–|to|until)\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${enM}\\b`));
+  if(m && okDay(+m[1]) && okDay(+m[2]) && +m[1] < +m[2]){
+    const s = placeYear(EN_MONTHS.indexOf(m[3].slice(0,3)), +m[1], dir);
+    return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[2]), strs:[sub(m)]};
+  }
+  // two full dates: "מ-30 בספטמבר עד 2 באוקטובר", "12/10 עד 14/10", "from October 3 to October 6"
+  const found = [];
+  for(const x of text.matchAll(new RegExp(`(?:מ-?|ב-?|ה-?)?(\\d{1,2})\\s*(?:ב|ל)?${HM}(?:\\s+(\\d{4}))?(?!${HEB})`, 'g')))
+    if(okDay(+x[1])) found.push({i:x.index, s:x[0], d: x[3] ? new Date(+x[3], MONTHS.indexOf(x[2]), +x[1]) : null, mo:MONTHS.indexOf(x[2]), day:+x[1]});
+  for(const x of lower.matchAll(new RegExp(`\\b(?:from\\s+|on\\s+)?${enM}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'g')))
+    if(okDay(+x[2])) found.push({i:x.index, s:text.substr(x.index, x[0].length), d:null, mo:EN_MONTHS.indexOf(x[1].slice(0,3)), day:+x[2]});
+  for(const x of text.matchAll(/(?<![\d:])(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d:])/g))
+    if(okDay(+x[1]) && +x[2]>=1 && +x[2]<=12) found.push({i:x.index, s:x[0], d: x[3] ? new Date(x[3].length===2 ? 2000 + +x[3] : +x[3], +x[2]-1, +x[1]) : null, mo:+x[2]-1, day:+x[1]});
+  if(found.length >= 2){
+    found.sort((a,b)=>a.i-b.i);
+    const [a, b] = found;
+    const s = a.d || placeYear(a.mo, a.day, dir);
+    const e = b.d || new Date(s.getFullYear(), b.mo, b.day);
+    if(sod(fixEnd(s, e)) > sod(s)) return {start:s, end:fixEnd(s, e), strs:[a.s, b.s]};
+  }
+  return null;
+}
+// "ל-3 ימים", "לשלושה ימים", "ליומיים", "לשבוע", "for 3 days", "for a week" → number of days
+const HE_NUMS = {'יומיים':2,'שלושה':3,'ארבעה':4,'חמישה':5,'שישה':6,'שבעה':7,'שלוש':3,'ארבע':4,'חמש':5,'שש':6,'שבע':7};
+const EN_NUMS = {two:2, three:3, four:4, five:5, six:6, seven:7, ten:10};
+function detectDuration(text){
+  let m;
+  if((m = text.match(new RegExp(`(?<!${HEB})ל-?(\\d+)\\s+ימים(?!${HEB})`)))) return {days:+m[1], str:m[0]};
+  if((m = text.match(new RegExp(`(?<!${HEB})ל(שלושה|ארבעה|חמישה|שישה|שבעה|שלוש|ארבע|חמש|שש|שבע)\\s+ימים(?!${HEB})`)))) return {days:HE_NUMS[m[1]], str:m[0]};
+  if((m = text.match(new RegExp(`(?<!${HEB})ליומיים(?!${HEB})`)))) return {days:2, str:m[0]};
+  if((m = text.match(new RegExp(`(?<!${HEB})לשבוע(?!${HEB})`)))) return {days:7, str:m[0]};
+  if((m = text.match(/\bfor\s+(\d+|two|three|four|five|six|seven|ten)\s+days\b/i))) return {days: +m[1] || EN_NUMS[m[1].toLowerCase()], str:m[0]};
+  if((m = text.match(/\bfor\s+(?:a|one)\s+week\b/i))) return {days:7, str:m[0]};
+  if((m = text.match(/\bfor\s+the\s+weekend\b/i))) return {days:2, str:m[0]};
+  return null;
+}
+
 const EVENING = /בערב|בלילה|אחר הצהריים|אחה״צ|אחה"צ|בצהריים|evening|night|afternoon|\bpm\b/i;
 const MORNING = /בבוקר|morning|\bam\b/i;
 function timeParts(str, ctx){
@@ -344,7 +424,8 @@ function timeParts(str, ctx){
   if(suf[0]==='p' && h<12) h += 12;
   if(suf[0]==='a' && h===12) h = 0;
   // "ב-8 בערב" → 20:00, "ב-3" → 15:00
-  if(!/^[ap]/.test(suf) && h>=1 && h<12 && (EVENING.test(ctx) || (h<=7 && !MORNING.test(ctx)))) h += 12;
+  // (not for a leading-zero hour like "02:00", which is already 24h)
+  if(!/^[ap]/.test(suf) && !/^0\d/.test(m[1]) && h>=1 && h<12 && (EVENING.test(ctx) || (h<=7 && !MORNING.test(ctx)))) h += 12;
   if(h>24 || mi>59) return null;
   return {h:h%24, m:mi};
 }
@@ -369,7 +450,8 @@ function detectTimes(text){
 function strip(text, strs){ let t = text; (strs||[]).forEach(s=>{ if(s) t = t.replace(s,' '); }); return t; }
 function cleanTitle(text){
   const stop = new Set(['בין','מ-','משעה','עד','ל-','ב-','ב','ל','בשעה','הבא','הבאה','הקרוב','שעבר','-','–','at','on','from','to','next','last','the','this','in']);
-  let t = text.replace(new RegExp(`(?<!${HEB})(?:בבוקר|בצהריים|אחר הצהריים|אחה״צ|אחה"צ|בערב|בלילה)(?!${HEB})`,'g'),' ')
+  let t = text.replace(new RegExp(`(?<!${HEB})(?:בבוקר|בצהריים|אחר הצהריים|אחה״צ|אחה"צ|בערב|בלילה|הערב|הלילה)(?!${HEB})`,'g'),' ')
+              .replace(/\b(?:tonight|this evening|this morning)\b/gi,' ')
               .replace(/[,،.!]+/g,' ').replace(/\s+/g,' ').trim();
   // "הייתי בארוחה…" → "ארוחה…", "היה לי מבחן" → "מבחן", "I had dinner…" → "dinner…"
   t = t.replace(new RegExp(`^(?:(?:היה|היתה|הייתה|יש|תהיה|יהיה)\\s+(?:לי|לנו)|קבעתי|קבענו)\\s+`), '')
@@ -402,15 +484,29 @@ function localParse(raw){
   raw = raw.trim().replace(/\s+/g,' ');
   const dir = PAST_CUES.test(raw) ? 'past' : FUTURE_CUES.test(raw) ? 'future' : null;
   const cat = detectCategory(raw);
-  const dr = detectDate(raw, dir);
+  // a date range ("3-6 באוקטובר") or a single date, optionally with a length ("ל-3 ימים")
+  let dr = detectRange(raw, dir), first, last;
+  if(dr){ first = dr.start; last = dr.end; }
+  else {
+    dr = detectDate(raw, dir); first = last = dr.date;
+    const dur = detectDuration(strip(raw, dr.strs));
+    if(dur && dur.days > 1){ last = addDays(first, dur.days - 1); dr.strs = [...dr.strs, dur.str]; }
+  }
   const rest = strip(raw, dr.strs);
-  const tm = detectTimes(rest);
+  let tm = detectTimes(rest);
+  const multi = sod(last) > sod(first);
+  // "מ-3 באוקטובר ב-9:00 עד 5 באוקטובר ב-17:00": the second time is the end time on the last day
+  if(multi && tm.start && !tm.end){
+    const t2 = detectTimes(strip(rest, tm.strs));
+    if(t2.start && /\d/.test(t2.strs[0]||'')) tm = {start:tm.start, end:t2.start, strs:[...tm.strs, ...t2.strs]};
+  }
   const {title, location} = splitLocation(cleanTitle(strip(rest, tm.strs)));
   const base = {title: title || fallbackTitle(cat), location, notes:'', cat:cat.k};
-  if(!tm.start) return {...base, allDay:true, start:sod(dr.date), end:addDays(sod(dr.date),1)};
-  const start = new Date(dr.date); start.setHours(tm.start.h, tm.start.m, 0, 0);
+  if(!tm.start) return {...base, allDay:true, start:sod(first), end:addDays(sod(last),1)};
+  const start = new Date(first); start.setHours(tm.start.h, tm.start.m, 0, 0);
   let end;
-  if(tm.end){ end = new Date(start); end.setHours(tm.end.h, tm.end.m, 0, 0); if(end<=start) end = addDays(end,1); }
+  if(tm.end){ end = new Date(last); end.setHours(tm.end.h, tm.end.m, 0, 0); if(end<=start) end = addDays(end,1); }
+  else if(multi){ end = new Date(last); end.setHours(tm.start.h, tm.start.m, 0, 0); }
   else end = new Date(start.getTime() + 60*60000);
   return {...base, allDay:false, start, end};
 }
@@ -429,19 +525,23 @@ async function understand(text){
   const [d] = await Promise.all([localParse(text), sleep(350)]);
   return d;
 }
-// AI JSON: {title, date:"YYYY-MM-DD", time:"HH:MM"|null, endTime:"HH:MM"|null, location, notes, category}
+// AI JSON: {title, date:"YYYY-MM-DD", time:"HH:MM"|"", endDate:"YYYY-MM-DD"|"", endTime:"HH:MM"|"", location, notes, category}
 function fromAI(j, text){
   if(!j || typeof j.date!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(j.date)) return null;
   const day = parseYMD(j.date);
   const cat = normCat(j.category) || detectCategory(text).k;
   const base = {title:String(j.title||'').trim() || fallbackTitle(catObj(cat)), location:String(j.location||'').trim(), notes:String(j.notes||'').trim(), cat};
   const tp = s => (typeof s==='string' && /^\d{1,2}:\d{2}$/.test(s)) ? s.split(':').map(Number) : null;
+  // endDate: last day of a multi-day event ("" = same day)
+  const endDay = (typeof j.endDate==='string' && /^\d{4}-\d{2}-\d{2}$/.test(j.endDate) && j.endDate > j.date) ? parseYMD(j.endDate) : null;
   const st = tp(j.time);
-  if(!st) return {...base, allDay:true, start:day, end:addDays(day,1)};
+  if(!st) return {...base, allDay:true, start:day, end:addDays(endDay || day, 1)};
   const start = new Date(day); start.setHours(st[0], st[1], 0, 0);
-  const et = tp(j.endTime);
-  let end = et ? new Date(day.getFullYear(), day.getMonth(), day.getDate(), et[0], et[1]) : new Date(start.getTime()+60*60000);
-  if(end<=start) end = addDays(end,1);
+  const et = tp(j.endTime), ed = endDay || day;
+  let end = et ? new Date(ed.getFullYear(), ed.getMonth(), ed.getDate(), et[0], et[1])
+          : endDay ? new Date(ed.getFullYear(), ed.getMonth(), ed.getDate(), st[0], st[1])
+          : new Date(start.getTime()+60*60000);
+  if(end<=start) end = endDay ? new Date(start.getTime()+60*60000) : addDays(end,1);
   return {...base, allDay:false, start, end};
 }
 
@@ -461,7 +561,8 @@ function load(){
   }
 }
 function persist(){ LS.set(KEY, events.map(e=>({...e, start:e.start.toISOString(), end:e.end.toISOString()}))); }
-const isUpcoming = e => e.allDay ? sod(e.start) > todayLocal() : e.start > new Date();
+// Upcoming = hasn't started yet, or a multi-day event that is still going on.
+const isUpcoming = e => (e.allDay ? sod(e.start) > todayLocal() : e.start > new Date()) || isOngoing(e);
 
 /* =====================================================================
    Google Calendar — OAuth 2.0 token flow in the browser (Google Identity Services).
@@ -560,7 +661,8 @@ function renderReview(){
   syncInput();
   if(st.phase==='idle'){ box.innerHTML=''; return; }
   if(st.phase==='thinking'){ box.innerHTML = `<div class="thinking">מבין<span class="dots"><b></b><b></b><b></b></span></div>`; return; }
-  const d = st.draft, c = catObj(d.cat), rel = relDay(d.start), up = isUpcoming(d);
+  const d = st.draft, c = catObj(d.cat), rel = relDay(d.start), up = isUpcoming(d), multi = isMulti(d);
+  const tag = isOngoing(d) ? 'עכשיו' : up ? 'מתוכנן' : 'קרה';
   box.innerHTML = `
     <div class="review">
       <div class="card">
@@ -568,14 +670,20 @@ function renderReview(){
           <div class="emoji" aria-hidden="true">${c.e}</div>
           <div style="flex:1;min-width:0">
             <input class="c-title" id="fTitle" value="${esc(d.title)}" aria-label="שם האירוע">
-            <div class="c-meta"><span class="tag ${up?'up':'past'}">${up?'מתוכנן':'קרה'}</span>
+            <div class="c-meta"><span class="tag ${up?'up':'past'}">${tag}</span>
               <label class="pick soft catpick">${esc(c.l)}<select id="fCat" aria-label="קטגוריה">${CATS.map(x=>`<option value="${x.k}"${x.k===c.k?' selected':''}>${x.e} ${esc(x.l)}</option>`).join('')}</select></label></div>
           </div>
         </div>
         <div class="rows">
           <div class="row">${ICON.cal}<div class="val">
-            <label class="pick">${esc(rel || fullDate(d.start))}<input type="date" id="fDate" value="${ymd(d.start)}" aria-label="תאריך"></label>
-            ${rel ? `<span class="sub">${esc(fullDate(d.start))}</span>` : ''}
+            ${multi
+              ? `<label class="pick">${esc(shortDate(d.start))}<input type="date" id="fDate" value="${ymd(d.start)}" aria-label="תאריך התחלה"></label>
+                 <span class="dim">עד</span>
+                 <label class="pick">${esc(shortDate(d.allDay ? lastDay(d) : d.end))}<input type="date" id="fEndDate" value="${ymd(d.allDay ? lastDay(d) : d.end)}" min="${ymd(d.start)}" aria-label="תאריך סיום"></label>
+                 <span class="sub">${daysText(dayCount(d))}</span>`
+              : `<label class="pick">${esc(rel || fullDate(d.start))}<input type="date" id="fDate" value="${ymd(d.start)}" aria-label="תאריך"></label>
+                 ${rel ? `<span class="sub">${esc(fullDate(d.start))}</span>` : ''}
+                 <label class="pick soft addend">+ עד תאריך<input type="date" id="fEndDate" value="${ymd(d.start)}" min="${ymd(d.start)}" aria-label="תאריך סיום"></label>`}
           </div></div>
           <div class="row">${ICON.clock}<div class="val">
             ${d.allDay
@@ -606,17 +714,30 @@ function bindReview(){
     nd.setHours(d.start.getHours(), d.start.getMinutes(), 0, 0);
     d.start = nd; d.end = new Date(nd.getTime()+len); renderReview();
   });
+  // end date: makes the event span several days (or back to one day, if it's the start date)
+  $('#fEndDate').addEventListener('change', e=>{
+    if(!e.target.value) return;
+    let nd = parseYMD(e.target.value);
+    if(nd < sod(d.start)) nd = sod(d.start);
+    if(d.allDay) d.end = addDays(nd, 1);
+    else {
+      const en = new Date(nd); en.setHours(d.end.getHours(), d.end.getMinutes(), 0, 0);
+      d.end = en > d.start ? en : new Date(d.start.getTime() + 60*60000);
+    }
+    renderReview();
+  });
   $('#fStart').addEventListener('change', e=>{
     if(!e.target.value) return;
     const [h,m] = e.target.value.split(':').map(Number);
-    const len = d.allDay ? 60*60000 : d.end - d.start;
+    // adding a time to an all-day event keeps its days: ends on the last day, an hour after the start time
+    const len = d.allDay ? (dayCount(d)-1)*DAY + 60*60000 : d.end - d.start;
     const s = sod(d.start); s.setHours(h, m, 0, 0);
     d.allDay = false; d.start = s; d.end = new Date(s.getTime()+len); renderReview();
   });
   $('#fEnd') && $('#fEnd').addEventListener('change', e=>{
     if(!e.target.value) return;
     const [h,m] = e.target.value.split(':').map(Number);
-    let en = sod(d.start); en.setHours(h, m, 0, 0);
+    let en = sod(isMulti(d) ? d.end : d.start); en.setHours(h, m, 0, 0);   // the end time is on the end day
     if(en<=d.start) en = addDays(en,1);
     d.end = en; renderReview();
   });
@@ -654,9 +775,10 @@ function googleError(err, fallback){
 
 /* ---------- timeline ---------- */
 function evItem(e, prev){
-  const c = catObj(e.cat), up = isUpcoming(e), rel = relDay(e.start);
+  const c = catObj(e.cat), up = isUpcoming(e), multi = isMulti(e), rel = isOngoing(e) ? 'עכשיו' : relDay(e.start);
   const same = prev && ymd(prev.start)===ymd(e.start);
-  const meta = [up && rel ? `<span class="rel">${esc(rel)}</span>` : (!up && rel ? esc(rel) : ''), e.allDay ? '' : hm(e.start), esc(e.location)].filter(Boolean).join(' · ') || esc(c.l);
+  const when = multi ? `${spanText(e)}${e.allDay ? ` · ${daysText(dayCount(e))}` : ''}` : (e.allDay ? '' : hm(e.start));
+  const meta = [up && rel ? `<span class="rel">${esc(rel)}</span>` : (!up && rel ? esc(rel) : ''), esc(when), esc(e.location)].filter(Boolean).join(' · ') || esc(c.l);
   const gAct = e.gLink ? `<a href="${esc(e.gLink)}" target="_blank" rel="noopener">פתיחה ב-Google Calendar</a>`
              : `<button type="button" data-act="google">הוספה ל-Google Calendar</button>`;
   return `<li class="ev${up?' up':''}${same?' same':''}${st.open===e.id?' open':''}${st.flash===e.id?' flash':''}" data-id="${e.id}">
@@ -668,7 +790,7 @@ function evItem(e, prev){
         <span class="m">${meta}</span>
       </button>
       <div class="more">
-        <p>${esc(fullDate(e.start))}${e.allDay ? '' : ` · ${hm(e.start)}–${hm(e.end)}`}${e.location ? ` · ${esc(e.location)}` : ''}</p>
+        <p>${esc(whenText(e))}${e.location ? ` · ${esc(e.location)}` : ''}</p>
         ${e.notes ? `<p>${esc(e.notes)}</p>` : ''}
         <div class="acts">${gAct}<button type="button" class="del" data-act="del">מחיקה</button></div>
       </div>

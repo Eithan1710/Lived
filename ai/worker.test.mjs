@@ -24,7 +24,13 @@ assert.match(sent.body.contents[0].parts[0].text, /Today: 2026-09-28 \(Monday\)/
 
 // validation / normalisation
 assert.deepEqual(clean({title:' Gym ', date:'2026-09-28', time:'6:05', endTime:'7:00', location:'', notes:'', category:'fitness'}),
-  {title:'Gym', date:'2026-09-28', time:'06:05', endTime:'07:00', location:'', notes:'', category:'fitness'});
+  {title:'Gym', date:'2026-09-28', time:'06:05', endDate:'', endTime:'07:00', location:'', notes:'', category:'fitness'});
+// multi-day: endDate kept only when valid and after the start date
+assert.equal(clean({title:'Trip', date:'2026-10-03', time:'', endDate:'2026-10-06', category:'travel'}).endDate, '2026-10-06');
+assert.equal(clean({title:'Trip', date:'2026-10-03', time:'', endDate:'2026-10-03', category:'travel'}).endDate, '');
+assert.equal(clean({title:'Trip', date:'2026-10-03', time:'', endDate:'2026-10-01', category:'travel'}).endDate, '');
+assert.equal(clean({title:'Trip', date:'2026-10-03', time:'', endDate:'oct 6', category:'travel'}).endDate, '');
+assert.equal(clean({title:'Trip', date:'2026-10-03', time:'', endDate:'2028-10-06', category:'travel'}).endDate, '');
 assert.equal(clean({title:'x', date:'tomorrow', time:'', category:'food'}), null);            // bad date → reject
 assert.equal(clean({title:'x', date:'2026-10-20', time:'25:00', category:'nope'}).time, '');   // bad time → all-day
 assert.equal(clean({title:'x', date:'2026-10-20', time:'', category:'nope'}).category, 'other');
@@ -46,6 +52,6 @@ assert.equal(r.headers.get('Access-Control-Allow-Origin'), 'https://site.test');
 globalThis.fetch = gemini({title:'Gym', date:'2026-09-28', time:'18:00', endTime:'', location:'', notes:'', category:'fitness'});
 r = await call('https://site.test', {text:'Gym today at 6', today:'2026-09-28', weekday:1});
 assert.equal(r.status, 200);
-assert.deepEqual(await r.json(), {title:'Gym', date:'2026-09-28', time:'18:00', endTime:'', location:'', notes:'', category:'fitness'});
+assert.deepEqual(await r.json(), {title:'Gym', date:'2026-09-28', time:'18:00', endDate:'', endTime:'', location:'', notes:'', category:'fitness'});
 globalThis.fetch = realFetch;
 console.log('worker tests passed');
