@@ -1,0 +1,23 @@
+# Checks the deployed AI worker with real sentences (Actions → "AI check" → Run workflow).
+# Prints /health (no secrets), the CORS check, and each sentence's result. Uses ~30 free-tier Gemini requests.
+name: AI check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check the AI worker
+        env:
+          AI_ENDPOINT: ${{ secrets.AI_ENDPOINT }}
+          ORIGIN: https://eithan1710.github.io
+        run: node ai/check-endpoint.mjs

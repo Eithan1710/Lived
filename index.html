@@ -211,6 +211,17 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
 const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 const DAYS_SHORT = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
 const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+// Hebrew month names as people actually type them: typos and short forms included ("סטפמבר", "אוק׳").
+const HE_MONTH_ALIASES = [
+  ['ינואר',0],['יאנואר',0],['ינו׳',0],['ינו',0], ['פברואר',1],['פבואר',1],['פבראור',1],['פבר׳',1],['פבר',1],
+  ['מרץ',2],['מרס',2],['מרצ',2], ['אפריל',3],['אפר׳',3],['אפר',3], ['מאי',4], ['יוני',5],['יונ׳',5], ['יולי',6],
+  ['אוגוסט',7],['אוגוסת',7],['אגוסט',7],['אוג׳',7],['אוג',7],
+  ['ספטמבר',8],['סטפמבר',8],['ספטבמר',8],['ספטמבער',8],['ספטמר',8],['ספמבר',8],['ספט׳',8],['ספט',8],
+  ['אוקטובר',9],['אוקטבר',9],['אקטובר',9],['אוקטובער',9],['אוק׳',9],['אוק',9],
+  ['נובמבר',10],['נובמר',10],['נובמבער',10],['נוב׳',10],['נוב',10], ['דצמבר',11],['דיצמבר',11],['דצמבער',11],['דצמ׳',11],['דצמ',11]
+];
+const HE_MONTH_RE = HE_MONTH_ALIASES.map(a=>a[0]).sort((a,b)=>b.length-a.length).join('|');
+const heMonth = w => (HE_MONTH_ALIASES.find(a=>a[0]===w) || [0,-1])[1];
 const EN_MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
 const EN_DAYS = [['sunday','sun'],['monday','mon'],['tuesday','tue','tues'],['wednesday','wed'],['thursday','thu','thur','thurs'],['friday','fri'],['saturday','sat']];
 
@@ -313,8 +324,8 @@ function detectDate(text, dir){
   const sub = m => text.substr(m.index, m[0].length);
   let m;
   // "20 באוקטובר", "ה-3 לדצמבר 2027"
-  m = text.match(new RegExp(`(?:ב-?|ה-?)?(\\d{1,2})\\s*(?:ב|ל)?(${MONTHS.join('|')})(?:\\s+(\\d{4}))?(?!${HEB})`));
-  if(m && +m[1]>=1 && +m[1]<=31) return hit(m[3] ? new Date(+m[3], MONTHS.indexOf(m[2]), +m[1]) : placeYear(MONTHS.indexOf(m[2]), +m[1], dir), m[0]);
+  m = text.match(new RegExp(`(?:ב-?)?(?:ה-?)?(\\d{1,2})\\s*(?:ב|ל)?(${HE_MONTH_RE})(?:\\s+(\\d{4}))?(?!${HEB})`));
+  if(m && +m[1]>=1 && +m[1]<=31) return hit(m[3] ? new Date(+m[3], heMonth(m[2]), +m[1]) : placeYear(heMonth(m[2]), +m[1], dir), m[0]);
   // "October 20", "20 Oct", "Sep 24th"
   const enM = `(${EN_MONTHS.map(x=>x+'[a-z]*').join('|')})`;
   m = lower.match(new RegExp(`\\b(?:on\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${enM}\\b`));
@@ -360,14 +371,14 @@ function detectDate(text, dir){
 // "מ-30 בספטמבר עד 2 באוקטובר". Returns {start, end (last day), strs} or null.
 function detectRange(text, dir){
   const lower = text.toLowerCase(), sub = m => text.substr(m.index, m[0].length);
-  const HM = `(${MONTHS.join('|')})`, enM = `(${EN_MONTHS.map(x=>x+'[a-z]*').join('|')})`;
+  const HM = `(${HE_MONTH_RE})`, enM = `(${EN_MONTHS.map(x=>x+'[a-z]*').join('|')})`;
   const fixEnd = (s, e) => e < s ? new Date(e.getFullYear()+1, e.getMonth(), e.getDate()) : e;
   const okDay = n => n>=1 && n<=31;
   let m;
-  // "3-6 באוקטובר", "מ-3 עד 6 באוקטובר", "בין 3 ל-6 באוקטובר"
-  m = text.match(new RegExp(`(?:בין\\s+|מ-?|ב-?)?(\\d{1,2})\\s*(?:-|–|עד|ל-?)\\s*(\\d{1,2})\\s*(?:ב|ל)?${HM}(?!${HEB})`));
+  // "3-6 באוקטובר", "מ-3 עד 6 באוקטובר", "בין 3 ל-6 באוקטובר", "25 עד ה26 בספטמבר", "מה-25 עד ה-26 בסטפמבר"
+  m = text.match(new RegExp(`(?:בין\\s+|מ-?|ב-?)?(?:ה-?)?(\\d{1,2})\\s*(?:-|–|עד|ל-?)\\s*(?:ה-?)?(\\d{1,2})\\s*(?:ב|ל)?${HM}(?!${HEB})`));
   if(m && okDay(+m[1]) && okDay(+m[2]) && +m[1] < +m[2]){
-    const s = placeYear(MONTHS.indexOf(m[3]), +m[1], dir);
+    const s = placeYear(heMonth(m[3]), +m[1], dir);
     return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[2]), strs:[m[0]]};
   }
   // "Oct 3-6", "October 3 to 6", "3-6 October"
@@ -382,15 +393,15 @@ function detectRange(text, dir){
     return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[2]), strs:[sub(m)]};
   }
   // day range with a numeric month: "25-26.9", "25-26/9/2026", "מ-25 עד 26.9" (day before month, Israeli style)
-  m = text.match(/(?<![\d:./])(?:מ-?|ב-?|בין\s+)?(\d{1,2})\s*(?:-|–|עד|ל-?)\s*(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d:])/);
+  m = text.match(/(?<![\d:./])(?:מ-?|ב-?|בין\s+)?(?:ה-?)?(\d{1,2})\s*(?:-|–|עד|ל-?)\s*(?:ה-?)?(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d:])/);
   if(m && okDay(+m[1]) && okDay(+m[2]) && +m[1] < +m[2] && +m[3]>=1 && +m[3]<=12){
     const s = m[4] ? new Date(m[4].length===2 ? 2000 + +m[4] : +m[4], +m[3]-1, +m[1]) : placeYear(+m[3]-1, +m[1], dir);
     return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[2]), strs:[m[0]]};
   }
   // two full dates: "מ-30 בספטמבר עד 2 באוקטובר", "12/10 עד 14/10", "from October 3 to October 6"
   const found = [];
-  for(const x of text.matchAll(new RegExp(`(?:מ-?|ב-?|ה-?)?(\\d{1,2})\\s*(?:ב|ל)?${HM}(?:\\s+(\\d{4}))?(?!${HEB})`, 'g')))
-    if(okDay(+x[1])) found.push({i:x.index, s:x[0], d: x[3] ? new Date(+x[3], MONTHS.indexOf(x[2]), +x[1]) : null, mo:MONTHS.indexOf(x[2]), day:+x[1]});
+  for(const x of text.matchAll(new RegExp(`(?:מ-?|ב-?)?(?:ה-?)?(\\d{1,2})\\s*(?:ב|ל)?${HM}(?:\\s+(\\d{4}))?(?!${HEB})`, 'g')))
+    if(okDay(+x[1])) found.push({i:x.index, s:x[0], d: x[3] ? new Date(+x[3], heMonth(x[2]), +x[1]) : null, mo:heMonth(x[2]), day:+x[1]});
   for(const x of lower.matchAll(new RegExp(`\\b(?:from\\s+|on\\s+)?${enM}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'g')))
     if(okDay(+x[2])) found.push({i:x.index, s:text.substr(x.index, x[0].length), d:null, mo:EN_MONTHS.indexOf(x[1].slice(0,3)), day:+x[2]});
   for(const x of text.matchAll(/(?<![\d:])(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d:])/g))
@@ -456,7 +467,8 @@ function detectTimes(text){
 function strip(text, strs){ let t = text; (strs||[]).forEach(s=>{ if(s) t = t.replace(s,' '); }); return t; }
 function cleanTitle(text){
   const stop = new Set(['בין','מ-','משעה','עד','ל-','ב-','ב','ל','בשעה','הבא','הבאה','הקרוב','שעבר','-','–','at','on','from','to','next','last','the','this','in']);
-  let t = text.replace(new RegExp(`(?<!${HEB})(?:בבוקר|בצהריים|אחר הצהריים|אחה״צ|אחה"צ|בערב|בלילה|הערב|הלילה)(?!${HEB})`,'g'),' ')
+  let t = text.replace(new RegExp(`(?<!${HEB})(?:בבוקר|בצהריים|אחר הצהריים|אחה״צ|אחה"צ|בערב|בלילה|הערב|הלילה|בתאריכים|בתאריך|תאריך)(?!${HEB})`,'g'),' ')
+              .replace(/\bon the date\b/gi,' ')
               .replace(/\b(?:tonight|this evening|this morning)\b/gi,' ')
               .replace(/[,،.!]+/g,' ').replace(/\s+/g,' ').trim();
   // "הייתי בארוחה…" → "ארוחה…", "היה לי מבחן" → "מבחן", "I had dinner…" → "dinner…"
@@ -471,13 +483,16 @@ function cleanTitle(text){
   return /^[a-z]/.test(t) ? t[0].toUpperCase() + t.slice(1) : t;
 }
 const CAT_WORDS = new Set(CATS.flatMap(c=>c.words));
+// "ב…" words that are not places: "מבחן במתמטיקה", "שיחה בזום", "ביחד"
+const NOT_PLACES = ['בלי','בשביל','ביחד','בערך','בבית','בזום','בטלפון','באונליין','במתמטיקה','באנגלית','בעברית','בהיסטוריה','בפיזיקה',
+  'בכימיה','בביולוגיה','בספרות','בתנ״ך','בתנ"ך','במדעים','בכלכלה','במחשבים','בתכנות','בסטטיסטיקה','בחשבון','בגיאוגרפיה','באזרחות'];
 function splitLocation(text){
   const at = text.match(/\s(?:@|at|in)\s+(.+)$/i);
   if(at) return {title:text.slice(0,at.index).trim(), location:at[1].trim()};
   const words = text.split(/\s+/).filter(Boolean);
   for(let i=1;i<words.length;i++){
     const w = words[i];
-    if(w[0]==='ב' && w.length>2 && !CAT_WORDS.has(w) && !CAT_WORDS.has(w.slice(1)) && !['בלי','בשביל','ביחד','בערך','בבית'].includes(w)){
+    if(w[0]==='ב' && w.length>2 && !CAT_WORDS.has(w) && !CAT_WORDS.has(w.slice(1)) && !NOT_PLACES.includes(w)){
       const title = words.slice(0,i).join(' ').trim();
       const location = (w.slice(1) + ' ' + words.slice(i+1).join(' ')).trim();
       if(title) return {title, location};
@@ -506,7 +521,12 @@ function localParse(raw){
     const t2 = detectTimes(strip(rest, tm.strs));
     if(t2.start && /\d/.test(t2.strs[0]||'')) tm = {start:tm.start, end:t2.start, strs:[...tm.strs, ...t2.strs]};
   }
-  const {title, location} = splitLocation(cleanTitle(strip(rest, tm.strs)));
+  const cleaned = cleanTitle(strip(rest, tm.strs));
+  // "טיול עם חברים: נחל קיבוצים + הר תבור" → title before the colon, the places after it
+  const colon = cleaned.match(/^(.+?)(?<!\d)\s*:\s*(?!\d)(.+)$/);
+  const {title, location} = colon && colon[1].trim() && colon[2].trim()
+    ? {title: colon[1].trim(), location: colon[2].replace(/\s*[+&]\s*/g, ', ').replace(/[\s,]+$/,'').trim()}
+    : splitLocation(cleaned);
   const base = {title: title || fallbackTitle(cat), location, notes:'', cat:cat.k};
   if(!tm.start) return {...base, allDay:true, start:sod(first), end:addDays(sod(last),1)};
   const start = new Date(first); start.setHours(tm.start.h, tm.start.m, 0, 0);

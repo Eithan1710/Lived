@@ -33,6 +33,7 @@ export const SYSTEM = `You turn one short personal note (Hebrew or English) into
 The note may describe something that already happened ("אתמול…", "Yesterday I had…", "last Friday") or something planned ("מחר…", "next Tuesday").
 Rules:
 - title: a short noun phrase in the note's language: "Dinner with Sarah", "ארוחת ערב עם שרה", "Mom's birthday". No "I had", no date/time/place words.
+- The note may have typos ("סטפמבר" = September, "אוקטבר" = October) and filler words ("בתאריך"). Understand them; never copy them into the title.
 - Numeric dates are DAY first, then month (Israeli style): "12/10" = 12 October, "3.11" = 3 November, "25-26.9" = 25–26 September.
 - date: resolve relative dates from the given today and weekday. "tomorrow"/"מחר" = today+1, "yesterday"/"אתמול" = today-1.
   A bare weekday ("Sunday", "ביום ראשון") = the next such day, unless the note is in past tense, then the previous one.
@@ -43,7 +44,11 @@ Rules:
   "from Oct 3 to Oct 6", "מ-3 עד 6 באוקטובר", "Sunday to Tuesday", "for 3 days" (date + 2), "לשבוע" (date + 6), "חופשה ביוון 12/10 עד 15/10".
   Also set it when a timed event ends after midnight ("party 22:00-02:00" → endDate = next day). "" for single-day events.
 - endTime: only if the note states an end; with endDate it is the time on the last day ("from Oct 3 9:00 to Oct 5 17:00").
-- location: only an explicit place ("in Tel Aviv", "בתל אביב"), else "".
+- location: only an explicit place ("in Tel Aviv", "בתל אביב"), else "". If several places are listed
+  ("נחל קיבוצים + דירה בעפולה + הר תבור"), list them all, comma-separated: "נחל קיבוצים, עפולה, הר תבור".
+- notes: other useful details, e.g. where they stayed ("לינה בדירה בעפולה"), else "".
+- Example: "טיול עם חברים: נחל קיבוצים + דירה בעפולה + הר תבור בתאריך 25 עד ה26 בסטפמבר" →
+  title "טיול עם חברים", date 25 Sep, endDate 26 Sep, time "", location "נחל קיבוצים, עפולה, הר תבור", notes "לינה בדירה בעפולה", category travel..
 - category, pick the best fit:
   food = meals, restaurants, coffee, drinks with food · fitness = gym, workout, running, yoga · work = meetings, calls, interviews, office ·
   birthday = birthdays · sports = watching or playing a game/match (football, basketball, "Barcelona game") · health = doctor, dentist, therapy, tests ·

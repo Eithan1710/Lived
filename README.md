@@ -13,7 +13,7 @@
 | `.github/workflows/deploy.yml` | פרסום ל-GitHub Pages ויצירת `config.js` מ-GitHub secrets |
 | `ai/worker.js`, `wrangler.toml` | שרת AI קטן (Cloudflare Worker) שמנתח את הטקסט עם Google Gemini API |
 | `.env.example` | משתני הסביבה של שרת ה-AI |
-| `ai/worker.test.mjs`, `ai/test-live.mjs` | בדיקות: בלי מפתח / מול Gemini האמיתי |
+| `ai/worker.test.mjs`, `ai/test-live.mjs`, `ai/check-endpoint.mjs`, `ai/cases.mjs` | בדיקות: בלי מפתח / מול Gemini ישירות / מול השרת שעלה (Actions → AI check) |
 | `sw.js`, `manifest.json`, `icon.svg` | התקנה כאפליקציה ועבודה אופליין |
 
 ## איך זה עובד
