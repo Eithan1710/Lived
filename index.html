@@ -381,6 +381,12 @@ function detectRange(text, dir){
     const s = placeYear(EN_MONTHS.indexOf(m[3].slice(0,3)), +m[1], dir);
     return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[2]), strs:[sub(m)]};
   }
+  // day range with a numeric month: "25-26.9", "25-26/9/2026", "מ-25 עד 26.9" (day before month, Israeli style)
+  m = text.match(/(?<![\d:./])(?:מ-?|ב-?|בין\s+)?(\d{1,2})\s*(?:-|–|עד|ל-?)\s*(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d:])/);
+  if(m && okDay(+m[1]) && okDay(+m[2]) && +m[1] < +m[2] && +m[3]>=1 && +m[3]<=12){
+    const s = m[4] ? new Date(m[4].length===2 ? 2000 + +m[4] : +m[4], +m[3]-1, +m[1]) : placeYear(+m[3]-1, +m[1], dir);
+    return {start:s, end:new Date(s.getFullYear(), s.getMonth(), +m[2]), strs:[m[0]]};
+  }
   // two full dates: "מ-30 בספטמבר עד 2 באוקטובר", "12/10 עד 14/10", "from October 3 to October 6"
   const found = [];
   for(const x of text.matchAll(new RegExp(`(?:מ-?|ב-?|ה-?)?(\\d{1,2})\\s*(?:ב|ל)?${HM}(?:\\s+(\\d{4}))?(?!${HEB})`, 'g')))
@@ -431,8 +437,8 @@ function timeParts(str, ctx){
 }
 const T = '(\\d{1,2}(?::\\d{2})?(?:\\s*(?:וחצי|ורבע|am|pm|a\\.m\\.|p\\.m\\.))?)';
 function detectTimes(text){
-  let m = text.match(new RegExp(`(?:בין|מ-?|משעה|from)?\\s*${T}\\s*(?:-|–|עד|ל-?|to|until)\\s*${T}`, 'i'));
-  if(m && (/:|am|pm|וחצי/i.test(m[0]) || /בין|מ-?|משעה|from/.test(m[0]))){
+  let m = text.match(new RegExp(`(?:בין|מ-?|משעה|ב-?|from)?\\s*${T}\\s*(?:-|–|עד|ל-?|to|until)\\s*${T}`, 'i'));
+  if(m && (/:|am|pm|וחצי/i.test(m[0]) || /בין|מ-?|משעה|ב-?\d|from/.test(m[0]))){
     const s=timeParts(m[1], text), e=timeParts(m[2], text);
     if(s && e) return {start:s, end:e, strs:[m[0]]};
   }
@@ -519,8 +525,9 @@ async function understand(text){
       const res = await fetch(CONFIG.AI_ENDPOINT, {method:'POST', signal:ctl.signal, headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text, today: ymd(new Date()), now: hm(new Date()), weekday: new Date().getDay(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone})});
       clearTimeout(t);
-      if(res.ok){ const d = fromAI(await res.json(), text); if(d) return d; }
-    }catch(e){}
+      if(res.ok){ const d = fromAI(await res.json(), text); if(d) return d; console.warn('AI: unusable answer, using the built-in parser'); }
+      else console.warn('AI: HTTP', res.status, await res.text().catch(()=>''), '— using the built-in parser');
+    }catch(e){ console.warn('AI: request failed —', e.name === 'AbortError' ? 'timeout' : e.message, '— using the built-in parser'); }
   }
   const [d] = await Promise.all([localParse(text), sleep(350)]);
   return d;

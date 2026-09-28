@@ -55,3 +55,17 @@ assert.equal(r.status, 200);
 assert.deepEqual(await r.json(), {title:'Gym', date:'2026-09-28', time:'18:00', endDate:'', endTime:'', location:'', notes:'', category:'fitness'});
 globalThis.fetch = realFetch;
 console.log('worker tests passed');
+
+// /health: reports setup without revealing the key
+globalThis.fetch = async () => new Response(JSON.stringify({name:'models/x'}), {status:200});
+let h = await worker.fetch(new Request('https://w.test/health'), {GEMINI_API_KEY:'secret-key', ALLOWED_ORIGINS:'https://site.test'});
+let hj = await h.json();
+assert.equal(h.status, 200); assert.equal(hj.gemini, 'ok'); assert.equal(hj.keySet, true);
+assert.ok(!JSON.stringify(hj).includes('secret-key'));
+globalThis.fetch = async () => new Response(JSON.stringify({error:{message:'API key not valid'}}), {status:400});
+hj = await (await worker.fetch(new Request('https://w.test/health'), {GEMINI_API_KEY:'bad', ALLOWED_ORIGINS:'x'})).json();
+assert.match(hj.gemini, /HTTP 400: API key not valid/);
+hj = await (await worker.fetch(new Request('https://w.test/health'), {ALLOWED_ORIGINS:'x'})).json();
+assert.equal(hj.keySet, false); assert.equal(hj.ok, false);
+globalThis.fetch = realFetch;
+console.log('health tests passed');

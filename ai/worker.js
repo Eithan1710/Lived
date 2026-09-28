@@ -33,12 +33,13 @@ export const SYSTEM = `You turn one short personal note (Hebrew or English) into
 The note may describe something that already happened ("אתמול…", "Yesterday I had…", "last Friday") or something planned ("מחר…", "next Tuesday").
 Rules:
 - title: a short noun phrase in the note's language: "Dinner with Sarah", "ארוחת ערב עם שרה", "Mom's birthday". No "I had", no date/time/place words.
+- Numeric dates are DAY first, then month (Israeli style): "12/10" = 12 October, "3.11" = 3 November, "25-26.9" = 25–26 September.
 - date: resolve relative dates from the given today and weekday. "tomorrow"/"מחר" = today+1, "yesterday"/"אתמול" = today-1.
   A bare weekday ("Sunday", "ביום ראשון") = the next such day, unless the note is in past tense, then the previous one.
   "next <weekday>" = the first such day after today. "last <weekday>"/"<יום> שעבר" = the most recent such day before today.
   A date without a year = the nearest occurrence in the direction the note implies (past tense → past, otherwise the next one).
 - time: 24h. "8pm"/"8 בערב" = 20:00. A bare hour 1–7 without am/morning means pm ("Gym at 6" = 18:00). "" if no time.
-- endDate: for events that last several days, the LAST day (inclusive): "3-6 באוקטובר" → date 10-03, endDate 10-06;
+- endDate: for events that last several days, the LAST day (inclusive): "3-6 באוקטובר" → date 10-03, endDate 10-06; "טיול 25-26.9" → date 09-25, endDate 09-26;
   "from Oct 3 to Oct 6", "מ-3 עד 6 באוקטובר", "Sunday to Tuesday", "for 3 days" (date + 2), "לשבוע" (date + 6), "חופשה ביוון 12/10 עד 15/10".
   Also set it when a timed event ends after midnight ("party 22:00-02:00" → endDate = next day). "" for single-day events.
 - endTime: only if the note states an end; with endDate it is the time on the last day ("from Oct 3 9:00 to Oct 5 17:00").
@@ -105,8 +106,22 @@ function cors(origin){
 }
 const reply = (body, status, headers) => new Response(JSON.stringify(body), {status, headers:{...headers, 'Content-Type':'application/json'}});
 
+// GET /health — open it in a browser to check the setup. Shows no secrets: only whether a key is set
+// and whether Gemini accepts it for the configured model (a model lookup, which uses no generation quota).
+async function health(env){
+  const model = env.GEMINI_MODEL || DEFAULT_MODEL;
+  const out = {ok:false, model, keySet: !!env.GEMINI_API_KEY, allowedOrigins: String(env.ALLOWED_ORIGINS || '')};
+  if(out.keySet){
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, {headers:{'x-goog-api-key': env.GEMINI_API_KEY}});
+    out.gemini = r.ok ? 'ok' : `HTTP ${r.status}: ${(await r.json().catch(()=>({}))).error?.message || ''}`.slice(0, 300);
+    out.ok = r.ok && !!out.allowedOrigins;
+  }
+  return new Response(JSON.stringify(out, null, 2), {status: out.ok ? 200 : 500, headers:{'Content-Type':'application/json'}});
+}
+
 export default {
   async fetch(req, env){
+    if(req.method === 'GET' && new URL(req.url).pathname === '/health') return health(env);
     const allowed = String(env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
     const origin = req.headers.get('Origin') || '';
     if(!allowed.includes(origin)) return reply({error:'origin not allowed'}, 403, {});
