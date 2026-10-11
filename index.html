@@ -527,9 +527,12 @@ function localParse(raw){
   const cleaned = cleanTitle(strip(rest, tm.strs));
   // "טיול עם חברים: נחל קיבוצים + הר תבור" → title before the colon, the places after it
   const colon = cleaned.match(/^(.+?)(?<!\d)\s*:\s*(?!\d)(.+)$/);
-  const {title, location} = colon && colon[1].trim() && colon[2].trim()
+  let {title, location} = colon && colon[1].trim() && colon[2].trim()
     ? {title: colon[1].trim(), location: colon[2].replace(/\s*[+&]\s*/g, ', ').replace(/[\s,]+$/,'').trim()}
     : splitLocation(cleaned);
+  // "סרט אצל נדב" → title "סרט", location "נדב" (a real place, if one was named, stays the location)
+  const at = title.match(/^(.+?)\s+אצל\s+(.+)$/);
+  if(at && !location){ title = at[1].trim(); location = at[2].trim(); }
   const base = {title: title || fallbackTitle(cat), location, notes:'', cat:cat.k};
   if(!tm.start) return {...base, allDay:true, start:sod(first), end:addDays(sod(last),1)};
   const start = new Date(first); start.setHours(tm.start.h, tm.start.m, 0, 0);
@@ -560,7 +563,7 @@ function fromAI(j, text){
   if(!j || typeof j.date!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(j.date)) return null;
   const day = parseYMD(j.date);
   const cat = normCat(j.category) || detectCategory(text).k;
-  const base = {title:String(j.title||'').trim() || fallbackTitle(catObj(cat)), location:String(j.location||'').trim(), notes:String(j.notes||'').trim(), cat};
+  const base = {title:String(j.title||'').trim() || fallbackTitle(catObj(cat)), location:String(j.location||'').trim().replace(/^אצל\s+/, ''), notes:String(j.notes||'').trim(), cat};
   const tp = s => (typeof s==='string' && /^\d{1,2}:\d{2}$/.test(s)) ? s.split(':').map(Number) : null;
   // endDate: last day of a multi-day event ("" = same day)
   const endDay = (typeof j.endDate==='string' && /^\d{4}-\d{2}-\d{2}$/.test(j.endDate) && j.endDate > j.date) ? parseYMD(j.endDate) : null;

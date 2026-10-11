@@ -107,6 +107,10 @@ assert.equal(bodies[1].generationConfig.thinkingConfig, undefined);
   assert.equal((await extract('x', ctx, env, bursty)).title, 'third');
   assert.deepEqual(seen, ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']);
 }
+// "אצל נדב" in the model's location → "נדב"
+assert.equal(clean({title:'סרט', date:'2026-10-10', time:'19:00', location:'אצל נדב', category:'entertainment'}).location, 'נדב');
+assert.equal(clean({title:'Movie', date:'2026-10-10', time:'', location:"at Dan's place", category:'entertainment'}).location, 'Dan');
+assert.equal(clean({title:'x', date:'2026-10-10', time:'', location:'תל אביב', category:'work'}).location, 'תל אביב');
 console.log('worker tests passed');
 
 // /health: reports setup without revealing the key
