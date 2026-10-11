@@ -134,6 +134,9 @@ ol.tl{list-style:none; margin:0; padding:0;}
 .acts a, .acts button{display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 12px; border-radius:10px; background:#fff; font-size:14px; font-weight:600; color:var(--ink); text-decoration:none; border:1px solid var(--line);}
 .acts .del{color:var(--danger);}
 .acts .del.sure{background:var(--danger); color:#fff; border-color:var(--danger);}
+.acts button:disabled{opacity:.6; cursor:default;}
+.acts .plain{border-color:transparent; background:transparent; color:var(--ink2); font-weight:500;}
+.more .err{color:var(--danger); font-weight:600;}
 
 .empty{margin-top:44px; text-align:center; padding:0 8px;}
 .empty .ill{width:64px; height:64px; margin:0 auto 14px; border-radius:20px; background:var(--soft); display:grid; place-items:center; font-size:30px;}
@@ -587,7 +590,10 @@ function load(){
     persist();
   }
 }
-function persist(){ LS.set(KEY, events.map(e=>({...e, start:e.start.toISOString(), end:e.end.toISOString()}))); }
+// Saved per event, besides its fields: g ('ok' = in Google via the API, 'opened' = sent to Google's
+// pre-filled page), gId (Google event ID), gCal (calendar), gLink. In-flight state is not saved.
+const TRANSIENT = ['syncing', 'deleting', 'delError', 'delLocalOk'];
+function persist(){ LS.set(KEY, events.map(e=>{ const r = {...e, start:e.start.toISOString(), end:e.end.toISOString()}; TRANSIENT.forEach(k=>delete r[k]); return r; })); }
 // Upcoming = hasn't started yet, or a multi-day event that is still going on.
 const isUpcoming = e => (e.allDay ? sod(e.start) > todayLocal() : e.start > new Date()) || isOngoing(e);
 
@@ -629,18 +635,57 @@ const rfc = x => `${x.getFullYear()}-${pad(x.getMonth()+1)}-${pad(x.getDate())}T
 function googleBody(d){
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone, c = catObj(d.cat);
   const b = {summary:d.title, location:d.location||undefined, description:describe(d),
-    extendedProperties:{private:{app:'lived', category:c.k}}};
+    extendedProperties:{private:{app:'lived', category:c.k, ...(d.id ? {livedId:d.id} : {})}}};
   if(c.g) b.colorId = c.g;                 // the category's Google event color
   if(d.allDay){ b.start={date:ymd(d.start)}; b.end={date:ymd(d.end)}; }
   else { b.start={dateTime:rfc(d.start), timeZone:tz}; b.end={dateTime:rfc(d.end), timeZone:tz}; }
   return b;
 }
-async function insertEvent(d){
-  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-    method:'POST', headers:{'Authorization':'Bearer '+accessToken, 'Content-Type':'application/json'}, body:JSON.stringify(googleBody(d))});
-  if(res.status===401){ accessToken=null; tokenExp=0; LS.del('gcal_token'); throw {code:'expired'}; }
+const G_API = 'https://www.googleapis.com/calendar/v3';
+// One call to the Calendar API. A 401 means the session expired: forget the token so the next click asks again.
+async function gApi(method, path, body){
+  let res;
+  try{ res = await fetch(G_API + path, {method, headers:{'Authorization':'Bearer '+accessToken, ...(body ? {'Content-Type':'application/json'} : {})}, body: body ? JSON.stringify(body) : undefined}); }
+  catch(e){ throw {code:'network'}; }
+  if(res.status===401){ accessToken=null; tokenExp=0; LS.del('gcal_token'); throw {code:'expired', status:401}; }
   if(!res.ok) throw {code:'http', status:res.status};
-  return res.json();
+  return res.status===204 ? null : res.json();
+}
+const insertEvent = d => gApi('POST', '/calendars/primary/events', googleBody(d));
+
+// The Google event ID of an app event. New events store it (gId); older ones only kept the event's
+// htmlLink, whose "eid" parameter is base64("<eventId> <calendar>").
+function googleIdOf(ev){
+  if(ev.gId) return ev.gId;
+  try{
+    const eid = new URL(ev.gLink).searchParams.get('eid');
+    const id = atob(eid.replace(/-/g,'+').replace(/_/g,'/') + '==='.slice((eid.length + 3) % 4)).split(' ')[0];
+    return /^[\w-]{5,1024}$/.test(id) ? id : '';
+  }catch(e){ return ''; }
+}
+// For an event without a stored ID, look it up in Google — but only an exact match counts, so an
+// unrelated event is never touched: our own livedId tag, or (for events sent to Google's pre-filled
+// page) the same title, start, end and description the app put there. Returns the ID, or '' if not found.
+async function findGoogleId(ev){
+  const tagged = await gApi('GET', `/calendars/primary/events?privateExtendedProperty=${encodeURIComponent('livedId=' + ev.id)}&maxResults=5`);
+  if(tagged.items && tagged.items.length === 1) return tagged.items[0].id;
+  if(ev.g !== 'opened') return '';
+  const c = catObj(ev.cat), titles = [(c.k!=='other' ? c.e+' ' : '') + ev.title, ev.title];
+  const p = new URLSearchParams({timeMin: new Date(ev.start.getTime() - 60e3).toISOString(), timeMax: new Date(ev.end.getTime() + 60e3).toISOString(),
+    singleEvents:'true', maxResults:'50', q: ev.title});
+  const r = await gApi('GET', '/calendars/primary/events?' + p.toString());
+  const same = (g, d, allDay) => allDay ? g.date === ymd(d) : !!g.dateTime && new Date(g.dateTime).getTime() === d.getTime();
+  const hits = (r.items || []).filter(it => it.status !== 'cancelled' && titles.includes(it.summary)
+    && same(it.start || {}, ev.start, ev.allDay) && same(it.end || {}, ev.end, ev.allDay)
+    && (it.description || '').replace(/\r/g,'') === describe(ev));
+  return hits.length === 1 ? hits[0].id : '';
+}
+// Deletes the event in Google Calendar. Resolves 'deleted', 'gone' (already deleted there) or 'not-found'.
+async function deleteFromGoogle(ev){
+  const id = googleIdOf(ev) || await findGoogleId(ev);
+  if(!id) return 'not-found';
+  try{ await gApi('DELETE', `/calendars/${encodeURIComponent(ev.gCal || 'primary')}/events/${encodeURIComponent(id)}?sendUpdates=none`); return 'deleted'; }
+  catch(e){ if(e.status === 404 || e.status === 410) return 'gone'; throw e; }
 }
 // Description written to Google Calendar: the category, then the user's notes.
 function describe(d){ const c = catObj(d.cat); return `${c.e} ${c.l}` + (d.notes ? `\n\n${d.notes}` : ''); }
@@ -661,8 +706,12 @@ function sendToGoogle(ev){
     ev.g = 'opened'; persist();
     return Promise.resolve('opened');
   }
+  if(ev.syncing) return Promise.reject({code:'busy'});
+  ev.syncing = true;
   const tp = ensureToken();
-  return tp.then(()=>insertEvent(ev)).then(it=>{ ev.g = 'ok'; ev.gLink = it.htmlLink || ''; persist(); return 'ok'; });
+  return tp.then(()=>insertEvent(ev)).then(it=>{
+    ev.g = 'ok'; ev.gId = it.id; ev.gCal = 'primary'; ev.gLink = it.htmlLink || ''; persist(); return 'ok';
+  }).finally(()=>{ ev.syncing = false; });
 }
 
 /* =====================================================================
@@ -793,7 +842,7 @@ function save(){
   st.flash = ev.id; renderTimeline();
   const el = document.querySelector(`[data-id="${ev.id}"]`); el && el.scrollIntoView({behavior:'smooth', block:'center'});
   google.then(r=>{ toast(r==='ok' ? 'נשמר ונוסף ל-Google Calendar' : 'נשמר · אשרו את השמירה ב-Google Calendar'); renderTimeline(); })
-        .catch(err=>toast(googleError(err, 'נשמר בציר הזמן. לא נוסף ל-Google Calendar')));
+        .catch(err=>{ toast(googleError(err, 'נשמר בציר הזמן. לא נוסף ל-Google Calendar')); renderTimeline(); });
 }
 function googleError(err, fallback){
   if(err && (err.type==='popup_closed' || err.error==='access_denied')) return 'נשמר בציר הזמן. ההתחברות ל-Google בוטלה';
@@ -807,7 +856,10 @@ function evItem(e, prev){
   const when = multi ? `${spanText(e)}${e.allDay ? ` · ${daysText(dayCount(e))}` : ''}` : (e.allDay ? '' : hm(e.start));
   const meta = [up && rel ? `<span class="rel">${esc(rel)}</span>` : (!up && rel ? esc(rel) : ''), esc(when), esc(e.location)].filter(Boolean).join(' · ') || esc(c.l);
   const gAct = e.gLink ? `<a href="${esc(e.gLink)}" target="_blank" rel="noopener">פתיחה ב-Google Calendar</a>`
-             : `<button type="button" data-act="google">הוספה ל-Google Calendar</button>`;
+             : `<button type="button" data-act="google"${e.syncing ? ' disabled' : ''}>הוספה ל-Google Calendar</button>`;
+  const delAct = e.deleting ? `<button type="button" class="del" disabled>מוחק…</button>`
+    : e.delError ? `<button type="button" class="del sure" data-act="del">נסו שוב</button>${e.delLocalOk ? `<button type="button" class="plain" data-act="dellocal">מחיקה רק מהאפליקציה</button>` : ''}`
+    : `<button type="button" class="del" data-act="del">מחיקה</button>`;
   return `<li class="ev${up?' up':''}${same?' same':''}${st.open===e.id?' open':''}${st.flash===e.id?' flash':''}" data-id="${e.id}">
     <div class="d"><b>${e.start.getDate()}</b><span>${DAYS_SHORT[e.start.getDay()]}</span></div>
     <div class="rail"><i></i></div>
@@ -819,7 +871,8 @@ function evItem(e, prev){
       <div class="more">
         <p>${esc(whenText(e))}${e.location ? ` · ${esc(e.location)}` : ''}</p>
         ${e.notes ? `<p>${esc(e.notes)}</p>` : ''}
-        <div class="acts">${gAct}<button type="button" class="del" data-act="del">מחיקה</button></div>
+        ${e.delError ? `<p class="err" role="alert">${esc(e.delError)}</p>` : ''}
+        <div class="acts">${gAct}${delAct}</div>
       </div>
     </div>
   </li>`;
@@ -866,14 +919,62 @@ $('#timeline').addEventListener('click', e=>{
   if(act==='toggle'){ st.open = st.open===ev.id ? null : ev.id; renderTimeline(); }
   else if(act==='del'){
     if(!b.classList.contains('sure')){ b.classList.add('sure'); b.textContent = 'למחוק?'; return; }
-    events = events.filter(x=>x.id!==ev.id); persist(); st.open = null; renderTimeline();
-    toast('נמחק מציר הזמן');
+    removeEvent(ev);
   }
+  else if(act==='dellocal'){ dropLocal(ev); toast('נמחק מהאפליקציה בלבד. ב-Google Calendar האירוע נשאר'); }
   else if(act==='google'){
+    if(ev.syncing) return;
+    renderTimelineSoon();
     sendToGoogle(ev).then(r=>{ toast(r==='ok' ? 'נוסף ל-Google Calendar' : 'אשרו את השמירה ב-Google Calendar'); renderTimeline(); })
-      .catch(err=>toast(googleError(err, 'לא הצלחנו להוסיף ל-Google Calendar')));
+      .catch(err=>{ if(err && err.code === 'busy') return; toast(googleError(err, 'לא הצלחנו להוסיף ל-Google Calendar')); renderTimeline(); });
   }
 });
+
+/* ---------- deleting: Google Calendar first, then the app ---------- */
+// Called from the click (so a Google sign-in popup is allowed). The event leaves the timeline only
+// after Google confirms the deletion (or reports it was already gone / was never there).
+function removeEvent(ev){
+  if(ev.deleting) return;                                    // a second click while deleting does nothing
+  if(ev.syncing){ toast('האירוע עדיין נשמר ב-Google Calendar. נסו שוב בעוד רגע'); renderTimeline(); return; }
+  const inGoogle = ev.g === 'ok' || ev.g === 'opened' || !!ev.gId || !!ev.gLink;
+  if(!inGoogle){ dropLocal(ev); toast('נמחק מציר הזמן'); return; }
+  if(!clientId() || !gisReady()){
+    // no API access in this mode (no Client ID): the app can't reach the Google event
+    return deleteFailed(ev, ev.g === 'opened'
+      ? 'האירוע נוסף ל-Google Calendar ידנית, והאפליקציה לא מחוברת ל-Google כדי למחוק אותו. מחקו אותו ב-Google Calendar, ואז כאן "מחיקה רק מהאפליקציה".'
+      : 'אין חיבור ל-Google Calendar כרגע, אז האירוע לא נמחק שם.');
+  }
+  ev.deleting = true; ev.delError = ''; st.open = ev.id; renderTimeline();
+  const tp = ensureToken();                                  // inside the click
+  tp.then(()=>deleteFromGoogle(ev)).then(r=>{
+    ev.deleting = false;
+    dropLocal(ev);
+    toast(r === 'deleted' ? 'נמחק מציר הזמן ומ-Google Calendar'
+        : r === 'gone' ? 'נמחק מציר הזמן (ב-Google Calendar הוא כבר היה מחוק)'
+        : 'נמחק מציר הזמן (לא נמצא ב-Google Calendar)');
+  }).catch(err=>{
+    ev.deleting = false;
+    const msg = err && err.code === 'expired' ? 'ההתחברות ל-Google פגה. לחצו "נסו שוב" כדי להתחבר מחדש ולמחוק.'
+      : err && (err.type === 'popup_closed' || err.error === 'access_denied' || err.type === 'popup_failed_to_open') ? 'ההתחברות ל-Google בוטלה, אז האירוע לא נמחק שם.'
+      : err && err.code === 'network' ? 'אין חיבור לאינטרנט. האירוע לא נמחק מ-Google Calendar.'
+      : err && err.status === 403 ? 'אין הרשאה למחוק את האירוע הזה ב-Google Calendar.'
+      : err && err.status === 429 ? 'Google מגביל כרגע בקשות. נסו שוב בעוד דקה.'
+      : 'Google Calendar לא אישר את המחיקה. האירוע נשאר בשני המקומות.';
+    deleteFailed(ev, msg);
+  });
+}
+// The event stays (in the app and in Google); the user can retry, or explicitly remove it from the app only.
+function deleteFailed(ev, msg){
+  ev.delError = msg; ev.delLocalOk = true; st.open = ev.id;
+  renderTimeline(); toast(msg);
+}
+function dropLocal(ev){
+  events = events.filter(x=>x.id!==ev.id); persist();
+  if(st.open === ev.id) st.open = null;
+  renderTimeline();
+}
+// re-render after the current click handler (so the clicked button's state shows)
+function renderTimelineSoon(){ setTimeout(renderTimeline, 0); }
 
 function renderFoot(){
   $('#foot').innerHTML = (clientId() && (tokenValid() || LS.raw('gcal_connected'))) ? 'מחובר ל-Google Calendar · <button type="button" id="outBtn">התנתקות</button>' : '';

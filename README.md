@@ -14,6 +14,7 @@
 | `ai/worker.js`, `wrangler.toml` | שרת AI קטן (Cloudflare Worker) שמנתח את הטקסט עם Google Gemini API |
 | `.env.example` | משתני הסביבה של שרת ה-AI |
 | `ai/worker.test.mjs`, `ai/test-live.mjs`, `ai/check-endpoint.mjs`, `ai/cases.mjs` | בדיקות: בלי מפתח / מול Gemini ישירות / מול השרת שעלה (Actions → AI check) |
+| `tests/google-delete.test.mjs` | בדיקת מחיקה מול Google Calendar מדומה (`node tests/google-delete.test.mjs`) |
 | `sw.js`, `manifest.json`, `icon.svg` | התקנה כאפליקציה ועבודה אופליין |
 
 ## איך זה עובד
@@ -46,6 +47,8 @@
 | 📌 אחר (other) | צבע ברירת המחדל של היומן |
 
 הצבע נקבע רק בהוספה ישירה דרך ה-API, כלומר כשמוגדר `GOOGLE_CLIENT_ID`. בלי Client ID האפליקציה פותחת את דף "אירוע חדש" של Google, שאין בו אפשרות לקבוע צבע. שם הקטגוריה מופיעה כאימוג'י בכותרת ובתיאור.
+
+**מחיקה:** אירוע נמחק קודם ב-Google Calendar (`DELETE /calendars/primary/events/{id}`), ורק אחרי ש-Google מאשר הוא יוצא מציר הזמן. לכל אירוע נשמר ה-ID שלו ב-Google, ובאירוע ב-Google נשמר ה-ID של האפליקציה. אם Google לא מאשר (אין חיבור, ההתחברות פגה, שגיאה), האירוע נשאר בשני המקומות, ומופיעות הודעה וכפתור "נסו שוב". אירוע שכבר נמחק ב-Google יוצא מהאפליקציה בלי שגיאה.
 
 **Google Calendar:** OAuth 2.0 בדפדפן דרך Google Identity Services, בהרשאה `calendar.events` בלבד.
 - ה-Client ID הוא ערך ציבורי מעצם הגדרתו, ובאפליקציית דפדפן אין Client Secret בכלל.
